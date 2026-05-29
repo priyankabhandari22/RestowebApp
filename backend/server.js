@@ -15,7 +15,7 @@ const port = process.env.PORT || 5000;
 const mealDbBaseUrl = process.env.THEMEALDB_BASE_URL || "https://www.themealdb.com/api/json/v1/1";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const distPath = path.join(__dirname, "dist");
+const distPath = path.join(__dirname, "..", "frontend", "dist");
 const distIndexPath = path.join(distPath, "index.html");
 
 app.use(cors());

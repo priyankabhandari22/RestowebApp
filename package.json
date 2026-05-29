@@ -5,12 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm:client\" \"npm:server\"",
-    "client": "vite",
-    "server": "nodemon server.js",
-    "start": "node server.js",
-    "build": "vite build",
+    "client": "cd frontend && vite",
+    "server": "nodemon backend/server.js",
+    "start": "node backend/server.js",
+    "build": "cd frontend && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "cd frontend && vite preview"
   },
   "dependencies": {
     "cors": "^2.8.6",
