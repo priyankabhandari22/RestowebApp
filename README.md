@@ -1,6 +1,6 @@
 # Restowebapp Fullstack
 
-This project is a React + Vite frontend with an Express + MongoDB backend.
+This project is split into a React + Vite frontend and an Express + MongoDB backend.
 
 ## What it uses
 
@@ -19,6 +19,11 @@ CLIENT_ORIGIN=http://localhost:5173
 THEMEALDB_BASE_URL=https://www.themealdb.com/api/json/v1/1
 ```
 
+## Project Structure
+
+- `frontend/` - React app, Vite config, public assets
+- `backend/` - Express server and MongoDB models
+
 ## Run locally
 
 ```bash
@@ -26,7 +31,7 @@ npm install
 npm run dev
 ```
 
-The frontend runs on Vite and the backend runs on Express at the same time.
+The frontend runs from `frontend/` and the backend runs from `backend/` at the same time.
 
 ## Build
 
@@ -39,3 +44,12 @@ npm run build
 - `GET /api/menu` - returns live menu items
 - `POST /api/orders` - saves an order to MongoDB
 - `GET /api/orders` - returns saved orders
+- `GET /api/users` - returns saved customers
+
+## Deploy Notes
+
+For Render, set:
+
+- Root Directory: `restowebapp`
+- Build Command: `npm install && npm run build`
+- Start Command: `npm start`
