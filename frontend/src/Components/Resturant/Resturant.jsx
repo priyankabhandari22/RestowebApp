@@ -6,6 +6,7 @@ import { ArrowRight, BadgeIndianRupee, Clock3, ChefHat, Flame, Minus, Plus, Star
 import "./Resturant.css";
 import OrderDetails from "./OrderDetails";
 import AdminDashboard from "./AdminDashboard";
+import { apiUrl } from "../../api";
 
 const Resturant = () => {
   const [activeCategory, setActiveCategory] = useState("All");
@@ -20,7 +21,7 @@ const Resturant = () => {
   useEffect(() => {
     const loadMenu = async () => {
       try {
-        const response = await fetch("/api/menu");
+        const response = await fetch(apiUrl("/api/menu"));
 
         if (!response.ok) {
           throw new Error(`Menu request failed with status ${response.status}`);
@@ -116,7 +117,7 @@ const Resturant = () => {
   };
 
   const placeOrder = async (orderPayload) => {
-    const response = await fetch("/api/orders", {
+    const response = await fetch(apiUrl("/api/orders"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

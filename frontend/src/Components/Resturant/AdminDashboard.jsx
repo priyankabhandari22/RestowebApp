@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ArrowLeft, BadgeIndianRupee, CircleUserRound, Clock3, ListOrdered, Users } from "lucide-react";
 import "./AdminDashboard.css";
+import { apiUrl } from "../../api";
 
 const AdminDashboard = ({ onBackToMenu }) => {
   const [orders, setOrders] = useState([]);
@@ -14,8 +15,8 @@ const AdminDashboard = ({ onBackToMenu }) => {
         setLoading(true);
 
         const [ordersResponse, usersResponse] = await Promise.all([
-          fetch("/api/orders"),
-          fetch("/api/users"),
+          fetch(apiUrl("/api/orders")),
+          fetch(apiUrl("/api/users")),
         ]);
 
         const ordersData = await ordersResponse.json();
