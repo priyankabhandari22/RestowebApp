@@ -39,6 +39,8 @@ npm run build
 
 For Render, set:
 
-- Root Directory: `restowebapp`
+- Root Directory: the repo root for this service, not `backend`
 - Build Command: `npm install && npm run build`
 - Start Command: `npm start`
+
+If Render is running `npm start` during the build phase, the deploy will fail because dependencies are not installed yet. If Render is pointing the service root at `backend`, the start command will resolve to `backend/backend/server.js` and fail with `MODULE_NOT_FOUND`. Keep the service root at the repo root and keep the Start Command as `npm start`.
