@@ -18,7 +18,27 @@ const __dirname = path.dirname(__filename);
 const distPath = path.join(__dirname, "..", "frontend", "dist");
 const distIndexPath = path.join(distPath, "index.html");
 
-app.use(cors());
+const allowedOrigins = new Set([
+  process.env.CLIENT_ORIGIN,
+  "http://localhost:5173",
+  "http://localhost:5174",
+].filter(Boolean));
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.has(origin) || /^http:\/\/localhost:\d+$/.test(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
