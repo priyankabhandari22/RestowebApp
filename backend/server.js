@@ -5,8 +5,8 @@ import mongoose from "mongoose";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import Order from "./models/Order.js";
-import User from "./models/User.js";
+import orderRoutes from "./routes/orderRoutes.js";
+import userRoutes from "./routes/userRoutes.js";
 
 dotenv.config();
 
@@ -20,6 +20,7 @@ const distIndexPath = path.join(distPath, "index.html");
 
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 const menuCache = {
   items: [],
@@ -91,8 +92,6 @@ const mapMealCategoryToBucket = (category, mealName = "") => {
   return "Dinner";
 };
 
-const parsePrice = (price) => Number(String(price).replace(/[^\d]/g, "")) || 0;
-
 const formatPrice = (seed) => {
   const amount = 80 + (seed % 16) * 20;
   return `${amount}₹`;
@@ -155,6 +154,16 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, service: "restowebapp-api" });
 });
 
+app.get("/", (_req, res) => {
+  res.json({
+    success: true,
+    message: "RestoWeb API is running",
+  });
+});
+
+app.use("/api/users", userRoutes);
+app.use("/api/orders", orderRoutes);
+
 app.get("/api/menu", async (req, res) => {
   try {
     let items = await loadMenuCatalog();
@@ -173,8 +182,6 @@ app.get("/api/menu", async (req, res) => {
       return matchesCategory && matchesSearch;
     });
 
-    const categories = ["All", ...new Set(items.map((item) => item.category))];
-
     res.json({
       source: "themealdb",
       items: filteredItems,
@@ -188,109 +195,6 @@ app.get("/api/menu", async (req, res) => {
       categories: ["All", ...fixedMenuCategories],
       fallback: true,
       warning: error instanceof Error ? error.message : "Unknown error",
-    });
-  }
-});
-
-app.post("/api/orders", async (req, res) => {
-  try {
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        message: "MongoDB is not connected. Add MONGODB_URI to your .env file.",
-      });
-    }
-
-    const { customer, items, totals, paymentMethod } = req.body || {};
-
-    if (!customer?.fullName || !customer?.phone || !customer?.address || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({
-        message: "Customer details and at least one order item are required.",
-      });
-    }
-
-    const user = await User.findOneAndUpdate(
-      { phone: customer.phone },
-      {
-        fullName: customer.fullName,
-        phone: customer.phone,
-        address: customer.address,
-        landmark: customer.landmark || "",
-        deliveryTime: customer.deliveryTime || "asap",
-      },
-      {
-        upsert: true,
-        new: true,
-        setDefaultsOnInsert: true,
-      }
-    );
-
-    const normalizedItems = items.map((item) => ({
-      id: item.id,
-      name: item.name,
-      category: item.category,
-      image: item.image,
-      price: parsePrice(item.price),
-      quantity: Number(item.quantity) || 1,
-    }));
-
-    const order = await Order.create({
-      user: user._id,
-      items: normalizedItems,
-      totals: {
-        subtotal: Number(totals?.subtotal) || 0,
-        deliveryFee: Number(totals?.deliveryFee) || 0,
-        tax: Number(totals?.tax) || 0,
-        total: Number(totals?.total) || 0,
-      },
-      paymentMethod: paymentMethod || "upi-card",
-      status: "received",
-    }).then((savedOrder) => savedOrder.populate("user"));
-
-    res.status(201).json({
-      message: "Order saved successfully.",
-      orderId: order._id,
-      order,
-    });
-  } catch (error) {
-    res.status(500).json({
-      message: "Unable to save the order.",
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
-  }
-});
-
-app.get("/api/orders", async (_req, res) => {
-  try {
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        message: "MongoDB is not connected.",
-      });
-    }
-
-    const orders = await Order.find().populate("user").sort({ createdAt: -1 }).limit(20);
-    res.json({ orders });
-  } catch (error) {
-    res.status(500).json({
-      message: "Unable to load orders.",
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
-  }
-});
-
-app.get("/api/users", async (_req, res) => {
-  try {
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        message: "MongoDB is not connected.",
-      });
-    }
-
-    const users = await User.find().sort({ createdAt: -1 }).limit(20);
-    res.json({ users });
-  } catch (error) {
-    res.status(500).json({
-      message: "Unable to load users.",
-      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 });
