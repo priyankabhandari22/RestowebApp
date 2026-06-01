@@ -55,6 +55,17 @@
   line-height: 1.7;
 }
 
+.order-profile-note {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #0369a1;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
 .order-kicker,
 .card-kicker {
   display: inline-flex;

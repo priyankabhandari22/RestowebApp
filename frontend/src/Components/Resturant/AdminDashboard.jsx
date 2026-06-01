@@ -1,37 +1,40 @@
-import React, { useEffect, useState } from "react";
-import { ArrowLeft, BadgeIndianRupee, CircleUserRound, Clock3, ListOrdered, Users } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, BadgeIndianRupee, CircleUserRound, Clock3, ListOrdered, RefreshCw, Save, Trash2, Users } from "lucide-react";
 import "./AdminDashboard.css";
-import { apiUrl } from "../../api";
+import { deleteOrder, getOrders, getUsers, updateOrder } from "../../services/restoApi";
 
 const AdminDashboard = ({ onBackToMenu }) => {
   const [orders, setOrders] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [actionState, setActionState] = useState({ type: "idle", message: "", orderId: "" });
+  const [updatingOrderId, setUpdatingOrderId] = useState("");
+  const [statusDrafts, setStatusDrafts] = useState({});
+
+  const refreshAdminData = async () => {
+    try {
+      setLoading(true);
+
+      const [ordersData, usersData] = await Promise.all([getOrders(), getUsers()]);
+
+      setOrders(Array.isArray(ordersData.orders) ? ordersData.orders : []);
+      setUsers(Array.isArray(usersData.users) ? usersData.users : []);
+      setStatusDrafts(
+        Object.fromEntries(
+          (Array.isArray(ordersData.orders) ? ordersData.orders : []).map((order) => [order._id, order.status || "received"])
+        )
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     const loadAdminData = async () => {
       try {
-        setLoading(true);
-
-        const [ordersResponse, usersResponse] = await Promise.all([
-          fetch(apiUrl("/api/orders")),
-          fetch(apiUrl("/api/users")),
-        ]);
-
-        const ordersData = await ordersResponse.json();
-        const usersData = await usersResponse.json();
-
-        if (!ordersResponse.ok) {
-          throw new Error(ordersData.message || "Unable to load orders");
-        }
-
-        if (!usersResponse.ok) {
-          throw new Error(usersData.message || "Unable to load users");
-        }
-
-        setOrders(Array.isArray(ordersData.orders) ? ordersData.orders : []);
-        setUsers(Array.isArray(usersData.users) ? usersData.users : []);
+        await refreshAdminData();
+        setActionState({ type: "idle", message: "", orderId: "" });
         setError("");
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Unable to load admin data");
@@ -42,6 +45,61 @@ const AdminDashboard = ({ onBackToMenu }) => {
 
     loadAdminData();
   }, []);
+
+  const handleStatusChange = (orderId, value) => {
+    setStatusDrafts((current) => ({
+      ...current,
+      [orderId]: value,
+    }));
+  };
+
+  const handleOrderStatusSave = async (orderId) => {
+    try {
+      setUpdatingOrderId(orderId);
+      setActionState({ type: "idle", message: "", orderId: "" });
+
+      const selectedStatus = statusDrafts[orderId] || "received";
+      const response = await updateOrder(orderId, { status: selectedStatus });
+
+      setOrders((currentOrders) => currentOrders.map((order) => (order._id === orderId ? response.order : order)));
+      setActionState({ type: "success", message: `Order status updated to ${selectedStatus}.`, orderId });
+    } catch (saveError) {
+      setActionState({
+        type: "error",
+        message: saveError instanceof Error ? saveError.message : "Unable to update order status.",
+        orderId,
+      });
+    } finally {
+      setUpdatingOrderId("");
+    }
+  };
+
+  const handleOrderDelete = async (orderId) => {
+    const shouldDelete = window.confirm("Delete this order? This cannot be undone.");
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    try {
+      setUpdatingOrderId(orderId);
+      setActionState({ type: "idle", message: "", orderId: "" });
+
+      await deleteOrder(orderId);
+      setOrders((currentOrders) => currentOrders.filter((order) => order._id !== orderId));
+      setActionState({ type: "success", message: "Order deleted successfully.", orderId });
+    } catch (deleteError) {
+      setActionState({
+        type: "error",
+        message: deleteError instanceof Error ? deleteError.message : "Unable to delete order.",
+        orderId,
+      });
+    } finally {
+      setUpdatingOrderId("");
+    }
+  };
+
+  const orderStatusOptions = useMemo(() => ["received", "confirmed", "preparing", "out-for-delivery", "delivered", "cancelled"], []);
 
   return (
     <main className="admin-page">
@@ -78,6 +136,18 @@ const AdminDashboard = ({ onBackToMenu }) => {
       </section>
 
       {error ? <div className="admin-error">{error}</div> : null}
+
+      {actionState.message ? (
+        <div className={`admin-notice ${actionState.type}`}>
+          {actionState.message}
+        </div>
+      ) : null}
+
+      <div className="admin-toolbar">
+        <button type="button" className="admin-refresh-button" onClick={refreshAdminData} disabled={loading}>
+          <RefreshCw size={16} /> {loading ? "Refreshing..." : "Refresh data"}
+        </button>
+      </div>
 
       <section className="admin-grid">
         <div className="admin-panel">
@@ -130,7 +200,38 @@ const AdminDashboard = ({ onBackToMenu }) => {
                   <p>
                     Total: <BadgeIndianRupee size={14} /> {order.totals?.total || 0}
                   </p>
-                  <p>Status: {order.status}</p>
+                  <label className="admin-status-field">
+                    Status
+                    <select
+                      value={statusDrafts[order._id] || order.status || "received"}
+                      onChange={(event) => handleStatusChange(order._id, event.target.value)}
+                    >
+                      {orderStatusOptions.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <div className="admin-card-actions">
+                    <button
+                      type="button"
+                      className="admin-card-button primary"
+                      onClick={() => handleOrderStatusSave(order._id)}
+                      disabled={updatingOrderId === order._id}
+                    >
+                      <Save size={14} /> {updatingOrderId === order._id ? "Saving..." : "Save status"}
+                    </button>
+                    <button
+                      type="button"
+                      className="admin-card-button danger"
+                      onClick={() => handleOrderDelete(order._id)}
+                      disabled={updatingOrderId === order._id}
+                    >
+                      <Trash2 size={14} /> Delete order
+                    </button>
+                  </div>
                 </article>
               ))}
             </div>

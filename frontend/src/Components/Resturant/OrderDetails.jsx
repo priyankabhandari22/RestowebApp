@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ArrowLeft, BadgeIndianRupee, CreditCard, MapPin, Package, Phone, Truck } from "lucide-react";
 import "./OrderDetails.css";
 
@@ -6,7 +6,16 @@ const formatCurrency = (value) => `${value}₹`;
 
 const parsePrice = (price) => Number(String(price).replace(/[^\d]/g, "")) || 0;
 
-const OrderDetails = ({ cartSummary, onBackToMenu, onPlaceOrder }) => {
+const buildFormState = (currentUser) => ({
+  fullName: currentUser?.fullName || "",
+  phone: currentUser?.phone || "",
+  address: currentUser?.address || "",
+  landmark: currentUser?.landmark || "",
+  deliveryTime: currentUser?.deliveryTime || "asap",
+  paymentMethod: "upi-card",
+});
+
+const OrderDetails = ({ cartSummary, onBackToMenu, onPlaceOrder, currentUser }) => {
   const [formData, setFormData] = useState({
     fullName: "",
     phone: "",
@@ -21,6 +30,10 @@ const OrderDetails = ({ cartSummary, onBackToMenu, onPlaceOrder }) => {
     orderId: "",
     user: null,
   });
+
+  useEffect(() => {
+    setFormData(buildFormState(currentUser));
+  }, [currentUser]);
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -38,6 +51,7 @@ const OrderDetails = ({ cartSummary, onBackToMenu, onPlaceOrder }) => {
       setSubmitState({ status: "submitting", message: "", orderId: "", user: null });
 
       const payload = {
+        userId: currentUser?._id,
         customer: {
           fullName: formData.fullName,
           phone: formData.phone,
@@ -99,6 +113,7 @@ const OrderDetails = ({ cartSummary, onBackToMenu, onPlaceOrder }) => {
           <p>
             This is the same page your menu buttons open. Add dishes, review your summary, and finish checkout without leaving the app.
           </p>
+          {currentUser?._id ? <span className="order-profile-note">Checkout is connected to {currentUser.fullName}.</span> : null}
         </div>
 
         <div className="order-progress">

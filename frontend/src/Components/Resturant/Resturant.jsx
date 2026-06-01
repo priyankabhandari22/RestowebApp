@@ -1,12 +1,32 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import fallbackMenu from "./Menuapi";
 import MenuCard from "./MenuCard";
 import Nav from "../Navbar/Nav";
-import { ArrowRight, BadgeIndianRupee, Clock3, ChefHat, Flame, Minus, Plus, Star, ShoppingBag } from "lucide-react";
+import { ArrowRight, BadgeIndianRupee, ChefHat, Clock3, Flame, LogIn, LogOut, Minus, Plus, Save, ShoppingBag, Star, UserRound } from "lucide-react";
 import "./Resturant.css";
 import OrderDetails from "./OrderDetails";
 import AdminDashboard from "./AdminDashboard";
-import { apiUrl } from "../../api";
+import { createOrder, createUser, getMenu, getUsers, updateUser } from "../../services/restoApi";
+
+const storageKey = "restowebapp-current-user";
+
+const createEmptyAccountForm = () => ({
+  fullName: "",
+  phone: "",
+  address: "",
+  landmark: "",
+  deliveryTime: "asap",
+});
+
+const normalizePhone = (phone) => String(phone || "").replace(/\D/g, "");
+
+const buildAccountForm = (user) => ({
+  fullName: user?.fullName || "",
+  phone: user?.phone || "",
+  address: user?.address || "",
+  landmark: user?.landmark || "",
+  deliveryTime: user?.deliveryTime || "asap",
+});
 
 const Resturant = () => {
   const [activeCategory, setActiveCategory] = useState("All");
@@ -16,18 +36,17 @@ const Resturant = () => {
   const [menuItems, setMenuItems] = useState(fallbackMenu);
   const [menuLoading, setMenuLoading] = useState(true);
   const [menuError, setMenuError] = useState("");
+  const [currentUser, setCurrentUser] = useState(null);
+  const [accountForm, setAccountForm] = useState(createEmptyAccountForm());
+  const [accountLoading, setAccountLoading] = useState(false);
+  const [accountStatus, setAccountStatus] = useState({ type: "idle", message: "" });
+  const accountSectionRef = useRef(null);
   const menuList = ["All", "Lunch", "Evening", "Dinner"];
 
   useEffect(() => {
     const loadMenu = async () => {
       try {
-        const response = await fetch(apiUrl("/api/menu"));
-
-        if (!response.ok) {
-          throw new Error(`Menu request failed with status ${response.status}`);
-        }
-
-        const data = await response.json();
+        const data = await getMenu();
         setMenuItems(Array.isArray(data.items) && data.items.length > 0 ? data.items : fallbackMenu);
         setMenuError("");
       } catch (error) {
@@ -40,6 +59,35 @@ const Resturant = () => {
 
     loadMenu();
   }, []);
+
+  useEffect(() => {
+    const storedUser = window.localStorage.getItem(storageKey);
+
+    if (!storedUser) {
+      return;
+    }
+
+    try {
+      const parsedUser = JSON.parse(storedUser);
+
+      if (parsedUser && parsedUser._id) {
+        setCurrentUser(parsedUser);
+        setAccountForm(buildAccountForm(parsedUser));
+      }
+    } catch {
+      window.localStorage.removeItem(storageKey);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (currentUser) {
+      window.localStorage.setItem(storageKey, JSON.stringify(currentUser));
+      setAccountForm(buildAccountForm(currentUser));
+    } else {
+      window.localStorage.removeItem(storageKey);
+      setAccountForm(createEmptyAccountForm());
+    }
+  }, [currentUser]);
 
   const menuData = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -82,6 +130,10 @@ const Resturant = () => {
     setActiveCategory(category);
   };
 
+  const viewAccount = () => {
+    accountSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
   const addToCart = (item) => {
     setCartItems((currentItems) => [...currentItems, item]);
   };
@@ -116,22 +168,125 @@ const Resturant = () => {
     });
   };
 
-  const placeOrder = async (orderPayload) => {
-    const response = await fetch(apiUrl("/api/orders"), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(orderPayload),
-    });
+  const handleAccountChange = (event) => {
+    const { name, value } = event.target;
 
-    const data = await response.json();
+    setAccountForm((current) => ({
+      ...current,
+      [name]: value,
+    }));
+  };
 
-    if (!response.ok) {
-      throw new Error(data.message || "Order request failed");
+  const setAccountFeedback = (type, message) => {
+    setAccountStatus({ type, message });
+  };
+
+  const syncUserFromApi = async (phoneValue) => {
+    const normalizedInputPhone = normalizePhone(phoneValue);
+    const { users = [] } = await getUsers();
+    const matchedUser = users.find((user) => normalizePhone(user.phone) === normalizedInputPhone);
+
+    if (!matchedUser) {
+      throw new Error("No saved user found with that phone number.");
     }
 
-    return data;
+    setCurrentUser(matchedUser);
+    setAccountFeedback("success", `Logged in as ${matchedUser.fullName}.`);
+    return matchedUser;
+  };
+
+  const handleRegister = async (event) => {
+    event.preventDefault();
+
+    try {
+      setAccountLoading(true);
+      setAccountFeedback("idle", "");
+
+      const payload = {
+        fullName: accountForm.fullName.trim(),
+        phone: accountForm.phone.trim(),
+        address: accountForm.address.trim(),
+        landmark: accountForm.landmark.trim(),
+        deliveryTime: accountForm.deliveryTime,
+      };
+
+      const normalizedInputPhone = normalizePhone(payload.phone);
+      const { users = [] } = await getUsers();
+      const existingUser = users.find((user) => normalizePhone(user.phone) === normalizedInputPhone);
+
+      if (existingUser) {
+        setCurrentUser(existingUser);
+        setAccountFeedback("success", `Profile already exists. Logged in as ${existingUser.fullName}.`);
+        return;
+      }
+
+      const response = await createUser(payload);
+      setCurrentUser(response.user);
+      setAccountFeedback("success", `Profile created for ${response.user.fullName}.`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unable to register user.";
+      setAccountFeedback("error", errorMessage);
+    } finally {
+      setAccountLoading(false);
+    }
+  };
+
+  const handleLogin = async () => {
+    try {
+      setAccountLoading(true);
+      setAccountFeedback("idle", "");
+
+      if (!accountForm.phone.trim()) {
+        throw new Error("Enter a phone number to log in.");
+      }
+
+      await syncUserFromApi(accountForm.phone);
+    } catch (error) {
+      setAccountFeedback("error", error instanceof Error ? error.message : "Unable to log in.");
+    } finally {
+      setAccountLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setAccountFeedback("success", "Logged out successfully.");
+  };
+
+  const handleProfileUpdate = async (event) => {
+    event.preventDefault();
+
+    try {
+      if (!currentUser?._id) {
+        throw new Error("Log in before updating your profile.");
+      }
+
+      setAccountLoading(true);
+      setAccountFeedback("idle", "");
+
+      const payload = {
+        fullName: accountForm.fullName.trim(),
+        phone: accountForm.phone.trim(),
+        address: accountForm.address.trim(),
+        landmark: accountForm.landmark.trim(),
+        deliveryTime: accountForm.deliveryTime,
+      };
+
+      const response = await updateUser(currentUser._id, payload);
+      setCurrentUser(response.user);
+      setAccountFeedback("success", `Profile updated for ${response.user.fullName}.`);
+    } catch (error) {
+      setAccountFeedback("error", error instanceof Error ? error.message : "Unable to update profile.");
+    } finally {
+      setAccountLoading(false);
+    }
+  };
+
+  const placeOrder = async (orderPayload) => {
+    return createOrder({
+      ...orderPayload,
+      userId: currentUser?._id || orderPayload.userId,
+    });
   };
 
   if (activeView === "order") {
@@ -140,6 +295,7 @@ const Resturant = () => {
         cartSummary={cartSummary}
         onBackToMenu={backToMenu}
         onPlaceOrder={placeOrder}
+        currentUser={currentUser}
       />
     );
   }
@@ -168,7 +324,8 @@ const Resturant = () => {
 
           <div className="hero-actions">
             <button type="button" className="primary-action" onClick={backToMenu}>Explore menu</button>
-            <button type="button" className="secondary-action">Today's specials</button>
+            <button type="button" className="secondary-action" onClick={() => filterItem("Lunch")}>Today's specials</button>
+            <button type="button" className="secondary-action" onClick={viewAccount}>My account</button>
             <button type="button" className="secondary-action" onClick={openAdminPage}>Saved orders</button>
           </div>
 
@@ -192,14 +349,92 @@ const Resturant = () => {
         </div>
 
         <aside className="hero-panel">
-          <div className="hero-panel-card">
-            <span className="panel-label">Featured today</span>
-            <h2>Spicy paneer bowl with fresh herbs</h2>
-            <p>Bright, filling, and ready to ship as a premium lunch special.</p>
-            <div className="panel-price-row">
-              <span className="price-tag">From 125₹</span>
-              <span className="panel-badge"><Flame size={16} /> Popular now</span>
+          <div className="hero-panel-stack">
+            <div className="hero-panel-card">
+              <span className="panel-label">Featured today</span>
+              <h2>Spicy paneer bowl with fresh herbs</h2>
+              <p>Bright, filling, and ready to ship as a premium lunch special.</p>
+              <div className="panel-price-row">
+                <span className="price-tag">From 125₹</span>
+                <span className="panel-badge"><Flame size={16} /> Popular now</span>
+              </div>
             </div>
+
+            <form className="account-panel" ref={accountSectionRef} onSubmit={currentUser ? handleProfileUpdate : handleRegister}>
+              <div className="account-panel-head">
+                <div>
+                  <span className="panel-label">Customer account</span>
+                  <h2>{currentUser ? `Welcome back, ${currentUser.fullName}` : "Register or log in"}</h2>
+                </div>
+                <UserRound size={18} />
+              </div>
+
+              {currentUser ? (
+                <div className="account-summary">
+                  <p>Saved profile is connected to the live backend.</p>
+                  <strong>{currentUser.phone}</strong>
+                  <span>{currentUser.address}</span>
+                  {currentUser.landmark ? <span>Landmark: {currentUser.landmark}</span> : null}
+                </div>
+              ) : (
+                <p className="account-summary">Create a profile to save orders and update your details later.</p>
+              )}
+
+              <div className="account-form-grid">
+                <label>
+                  Full name
+                  <input name="fullName" value={accountForm.fullName} onChange={handleAccountChange} type="text" placeholder="Priyanka Sharma" />
+                </label>
+                <label>
+                  Phone
+                  <input name="phone" value={accountForm.phone} onChange={handleAccountChange} type="tel" placeholder="98765 43210" />
+                </label>
+                <label className="full-width">
+                  Address
+                  <textarea name="address" value={accountForm.address} onChange={handleAccountChange} rows="3" placeholder="Flat no, street, area, city" />
+                </label>
+                <label>
+                  Landmark
+                  <input name="landmark" value={accountForm.landmark} onChange={handleAccountChange} type="text" placeholder="Near main market" />
+                </label>
+                <label>
+                  Delivery time
+                  <select name="deliveryTime" value={accountForm.deliveryTime} onChange={handleAccountChange}>
+                    <option value="asap">As soon as possible</option>
+                    <option value="30">In 30 minutes</option>
+                    <option value="60">In 1 hour</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="account-actions">
+                {currentUser ? (
+                  <>
+                    <button type="submit" className="account-primary-button" disabled={accountLoading}>
+                      <Save size={16} /> {accountLoading ? "Saving..." : "Update profile"}
+                    </button>
+                    <button type="button" className="account-secondary-button" onClick={handleLogout}>
+                      <LogOut size={16} /> Logout
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button type="submit" className="account-primary-button" disabled={accountLoading}>
+                      <UserRound size={16} /> {accountLoading ? "Registering..." : "Register"}
+                    </button>
+                    <button type="button" className="account-secondary-button" onClick={handleLogin} disabled={accountLoading}>
+                      <LogIn size={16} /> Log in
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {accountStatus.message ? (
+                <div className={`account-message ${accountStatus.type}`}>
+                  {accountStatus.message}
+                </div>
+              ) : null}
+            </form>
           </div>
         </aside>
       </section>
@@ -258,6 +493,9 @@ const Resturant = () => {
 
                       <div className="checkout-item-actions">
                         <span>{item.quantity}x</span>
+                        <button type="button" onClick={() => addToCart(item)} aria-label={`Add one more ${item.name}`}>
+                          <Plus size={14} />
+                        </button>
                         <button type="button" onClick={() => removeFromCart(item.id)} aria-label={`Remove one ${item.name}`}>
                           <Minus size={14} />
                         </button>
