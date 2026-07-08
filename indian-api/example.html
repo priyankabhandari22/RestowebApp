@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Indian Recipe API - Search thousands of authentic Indian recipes"
+    />
+    <meta name="author" content="Sachinart" />
+    <title>Indian Recipe API with Images</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        padding: 20px;
+      }
+
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        background: white;
+        border-radius: 10px;
+        padding: 30px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+      }
+
+      h1 {
+        color: #333;
+        margin-bottom: 10px;
+        text-align: center;
+      }
+
+      .subtitle {
+        text-align: center;
+        color: #666;
+        margin-bottom: 30px;
+      }
+
+      .search-box {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 30px;
+      }
+
+      input[type="text"] {
+        flex: 1;
+        padding: 12px 20px;
+        font-size: 16px;
+        border: 2px solid #ddd;
+        border-radius: 5px;
+        outline: none;
+        transition: border-color 0.3s;
+      }
+
+      input[type="text"]:focus {
+        border-color: #667eea;
+      }
+
+      button {
+        padding: 12px 30px;
+        font-size: 16px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: transform 0.2s;
+      }
+
+      button:hover {
+        transform: translateY(-2px);
+      }
+
+      button:active {
+        transform: translateY(0);
+      }
+
+      .loading {
+        text-align: center;
+        padding: 20px;
+        color: #667eea;
+        font-size: 18px;
+      }
+
+      .error {
+        background: #fee;
+        color: #c33;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+      }
+
+      .recipe-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 20px;
+      }
+
+      .recipe-card {
+        background: #f9f9f9;
+        border-radius: 8px;
+        padding: 20px;
+        border: 1px solid #eee;
+        transition: transform 0.2s, box-shadow 0.2s;
+      }
+
+      .recipe-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+      }
+
+      .recipe-card h3 {
+        color: #333;
+        margin-bottom: 10px;
+        font-size: 18px;
+      }
+
+      .recipe-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 15px;
+      }
+
+      .badge {
+        background: #667eea;
+        color: white;
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 12px;
+      }
+
+      .recipe-time {
+        color: #666;
+        font-size: 14px;
+        margin-bottom: 10px;
+      }
+
+      .recipe-link {
+        display: inline-block;
+        margin-top: 10px;
+        color: #667eea;
+        text-decoration: none;
+        font-weight: 500;
+      }
+
+      .recipe-link:hover {
+        text-decoration: underline;
+      }
+
+      .no-results {
+        text-align: center;
+        padding: 40px;
+        color: #999;
+      }
+
+      .api-config {
+        background: #f0f0f0;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+      }
+
+      .api-config label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: 500;
+      }
+
+      .api-config input {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🍛 Indian Recipe Search</h1>
+      <p class="subtitle">Search from 6,673+ authentic Indian recipes</p>
+      <p class="subtitle" style="font-size: 12px; margin-top: -15px">
+        API by
+        <a
+          href="https://github.com/Sachinart"
+          target="_blank"
+          style="color: #667eea"
+          >Sachinart</a
+        >
+        | Recipes from
+        <a
+          href="https://www.archanaskitchen.com/"
+          target="_blank"
+          style="color: #667eea"
+          >Archana's Kitchen</a
+        >
+      </p>
+
+      <div class="api-config">
+        <label for="apiUrl">API URL:</label>
+        <input
+          type="text"
+          id="apiUrl"
+          value="http://localhost:3000"
+          placeholder="http://localhost:3000"
+        />
+        <small style="color: #666; display: block; margin-top: 5px">
+          Change this to your deployed API URL when in production
+        </small>
+      </div>
+
+      <div class="search-box">
+        <input
+          type="text"
+          id="searchInput"
+          placeholder="Search for recipes (e.g., biryani, paneer, curry...)"
+          onkeypress="if(event.key === 'Enter') searchRecipes()"
+        />
+        <button onclick="searchRecipes()">Search</button>
+      </div>
+
+      <div id="error" class="error" style="display: none"></div>
+      <div id="loading" class="loading" style="display: none">
+        Searching recipes...
+      </div>
+      <div id="results" class="recipe-grid"></div>
+    </div>
+
+    <script>
+      async function searchRecipes() {
+        const query = document.getElementById("searchInput").value.trim();
+        const apiUrl = document.getElementById("apiUrl").value.trim();
+        const errorDiv = document.getElementById("error");
+        const loadingDiv = document.getElementById("loading");
+        const resultsDiv = document.getElementById("results");
+
+        // Clear previous results
+        errorDiv.style.display = "none";
+        resultsDiv.innerHTML = "";
+
+        if (!query) {
+          errorDiv.textContent = "Please enter a search query";
+          errorDiv.style.display = "block";
+          return;
+        }
+
+        // Show loading
+        loadingDiv.style.display = "block";
+
+        try {
+          const response = await fetch(
+            `${apiUrl}/?q=${encodeURIComponent(query)}`
+          );
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const data = await response.json();
+          loadingDiv.style.display = "none";
+
+          if (!Array.isArray(data) || data.length === 0) {
+            resultsDiv.innerHTML =
+              '<div class="no-results">No recipes found. Try a different search term.</div>';
+            return;
+          }
+
+          // Display results
+          displayRecipes(data);
+        } catch (error) {
+          loadingDiv.style.display = "none";
+          errorDiv.textContent = `Error: ${error.message}. Make sure the API server is running at ${apiUrl}`;
+          errorDiv.style.display = "block";
+          console.error("Error fetching recipes:", error);
+        }
+      }
+
+      function displayRecipes(recipes) {
+        const resultsDiv = document.getElementById("results");
+
+        resultsDiv.innerHTML = recipes
+          .map(
+            (recipe) => `
+                <div class="recipe-card">
+                    <h3>${escapeHtml(
+                      recipe.RecipeName || "Unknown Recipe"
+                    )}</h3>
+                    
+                    <div class="recipe-meta">
+                        ${
+                          recipe.Cuisine
+                            ? `<span class="badge">${escapeHtml(
+                                recipe.Cuisine
+                              )}</span>`
+                            : ""
+                        }
+                        ${
+                          recipe.Course
+                            ? `<span class="badge">${escapeHtml(
+                                recipe.Course
+                              )}</span>`
+                            : ""
+                        }
+                        ${
+                          recipe.Diet
+                            ? `<span class="badge">${escapeHtml(
+                                recipe.Diet
+                              )}</span>`
+                            : ""
+                        }
+                    </div>
+                    
+                    <div class="recipe-time">
+                        ${
+                          recipe.TotalTimeInMins
+                            ? `⏱️ Total Time: ${recipe.TotalTimeInMins} mins`
+                            : ""
+                        }
+                        ${
+                          recipe.Servings
+                            ? `| 🍽️ Servings: ${recipe.Servings}`
+                            : ""
+                        }
+                    </div>
+                    
+                    ${
+                      recipe.TranslatedIngredients
+                        ? `
+                        <div style="margin-top: 10px; font-size: 14px; color: #555;">
+                            <strong>Ingredients:</strong>
+                            <div style="max-height: 100px; overflow-y: auto; margin-top: 5px;">
+                                ${escapeHtml(
+                                  recipe.TranslatedIngredients.substring(0, 200)
+                                )}${
+                            recipe.TranslatedIngredients.length > 200
+                              ? "..."
+                              : ""
+                          }
+                            </div>
+                        </div>
+                    `
+                        : ""
+                    }
+                    
+                    ${
+                      recipe.URL
+                        ? `<a href="${escapeHtml(
+                            recipe.URL
+                          )}" target="_blank" class="recipe-link">View Full Recipe →</a>`
+                        : ""
+                    }
+                </div>
+            `
+          )
+          .join("");
+      }
+
+      function escapeHtml(text) {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      // Load example on page load
+      window.addEventListener("load", () => {
+        document.getElementById("searchInput").value = "biryani";
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,29 @@
+# Local development files
+
+node_modules
+.env
+_.sqlite
+_.db
+
+# Scripts not needed in production
+
+migrate.js
+scrape-images.js
+check-missing-images.js
+delete-broken-recipes.js
+delete-placeholder-recipes.js
+add-image-column.sql
+create-table.sql
+
+# CSV data file
+
+recipes.csv
+
+# Development files
+
+.git
+.gitignore
+README.md
+ENHANCEMENTS.md
+API_USAGE.md
+example.html
