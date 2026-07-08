@@ -169,32 +169,6 @@ const loadMenuFromCSV = () => {
   console.log(`Loaded ${items.length} items from CSV.`);
   return items;
 };
-  const iId = col("id"), iName = col("TranslatedRecipeName"), iOrigName = col("RecipeName");
-  const iCourse = col("Course"), iImage = col("ImageURL");
-  const iInstr = col("TranslatedInstructions"), iOrigInstr = col("Instructions");
-  const seen = new Set();
-  const items = [];
-  for (let i = 1; i < lines.length; i++) {
-    const vals = lines[i].split(",").map(v => v.replace(/^"|"$/g, "").trim());
-    const recipe = {
-      id: vals[iId] || i,
-      RecipeName: vals[iOrigName] || "",
-      TranslatedRecipeName: vals[iName] || vals[iOrigName] || "",
-      Course: vals[iCourse] || "",
-      ImageURL: vals[iImage] || "",
-      Instructions: vals[iOrigInstr] || "",
-      TranslatedInstructions: vals[iInstr] || vals[iOrigInstr] || "",
-    };
-    const normalized = normalizeRecipe(recipe);
-    if (normalized.id && normalized.name && !seen.has(normalized.id)) {
-      seen.add(normalized.id);
-      items.push(normalized);
-      if (items.length >= 1000) break;
-    }
-  }
-  console.log(`Loaded ${items.length} items from CSV.`);
-  return items;
-};
 
 const CSVLoadedItems = loadMenuFromCSV();
 
