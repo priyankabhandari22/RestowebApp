@@ -165,6 +165,16 @@ app.use("/api/delivery", deliveryRoutes);
 app.use("/api/tracking", trackingRoutes);
 app.use("/api/admin", adminRoutes);
 
+app.get("/api/health", (_req, res) => {
+  res.json({
+    status: "ok",
+    uptime: process.uptime(),
+    timestamp: Date.now(),
+    mongodb: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+    menuSource: menuCache.loaded && menuCache.items.length > 0 ? "indian" : "fallback",
+  });
+});
+
 app.get("/api/menu", async (req, res) => {
   try {
     let items = await loadMenuCatalog();

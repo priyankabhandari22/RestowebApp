@@ -97,11 +97,13 @@ const PaymentModal = ({ orderId, amount, onClose, onPaymentComplete }) => {
     onPaymentComplete?.(method, txId);
   };
 
+  const razorpayAvailable = !import.meta.env.VITE_RAZORPAY_KEY_ID?.includes("placeholder");
+
   const methods = [
     { id: "cod", label: "Cash on Delivery", desc: "Pay when food arrives", icon: Banknote },
     { id: "qr", label: "QR Code Payment", desc: "Scan & pay via any UPI app", icon: QrCode },
     { id: "upi", label: "UPI Payment", desc: "PhonePe, GPay, Paytm, BHIM", icon: Smartphone },
-    { id: "razorpay", label: "Card / Net Banking", desc: "Credit Card, Debit Card, Net Banking", icon: Wallet },
+    { id: "razorpay", label: "Card / Net Banking", desc: razorpayAvailable ? "Credit Card, Debit Card, Net Banking" : "Not available in test mode", icon: Wallet },
   ];
 
   return (
@@ -117,13 +119,16 @@ const PaymentModal = ({ orderId, amount, onClose, onPaymentComplete }) => {
               <p className="payment-amount">Payable: <strong>{amount}₹</strong></p>
             </div>
             <div className="payment-methods">
-              {methods.map((m) => (
-                <label key={m.id} className={`payment-method-item ${method === m.id ? "active" : ""}`}>
-                  <input type="radio" name="paymentMethod" value={m.id} checked={method === m.id} onChange={() => setMethod(m.id)} />
-                  <m.icon size={20} />
-                  <div><strong>{m.label}</strong><span>{m.desc}</span></div>
-                </label>
-              ))}
+              {methods.map((m) => {
+                const disabled = m.id === "razorpay" && !razorpayAvailable;
+                return (
+                  <label key={m.id} className={`payment-method-item ${method === m.id ? "active" : ""} ${disabled ? "disabled" : ""}`}>
+                    <input type="radio" name="paymentMethod" value={m.id} checked={method === m.id} onChange={() => !disabled && setMethod(m.id)} />
+                    <m.icon size={20} />
+                    <div><strong>{m.label}</strong><span>{m.desc}</span></div>
+                  </label>
+                );
+              })}
             </div>
             {message && <p className="payment-message">{message}</p>}
             <button className="payment-proceed-btn" onClick={handleProceed} disabled={loading}>

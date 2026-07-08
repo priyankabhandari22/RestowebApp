@@ -82,6 +82,8 @@
 .payment-method-item svg { color: var(--text-secondary); flex-shrink: 0; }
 .payment-method-item.active svg { color: var(--accent-primary); }
 
+.payment-method-item.disabled { opacity: 0.45; cursor: not-allowed; }
+
 .payment-method-item strong { display: block; margin-bottom: 0.1rem; font-size: 0.92rem; }
 .payment-method-item span { color: var(--text-secondary); font-size: 0.82rem; }
 
