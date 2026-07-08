@@ -117,6 +117,47 @@ const fetchWithRetry = async (url, retries = 3, timeoutMs = 8000) => {
   }
 };
 
+const loadMenuFromCSV = () => {
+  const csvPath = path.join(__dirname, "..", "indian-api", "recipes.csv");
+  if (!fs.existsSync(csvPath)) { console.warn("CSV file not found at", csvPath); return []; }
+  console.log("Loading menu from CSV...");
+  const text = fs.readFileSync(csvPath, "utf-8");
+  const lines = text.split("\n").filter(Boolean);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",").map(h => h.replace(/^"|"$/g, ""));
+  const col = (name) => {
+    const idx = headers.indexOf(name);
+    return idx >= 0 ? idx : -1;
+  };
+  const iId = col("id"), iName = col("TranslatedRecipeName"), iOrigName = col("RecipeName");
+  const iCourse = col("Course"), iImage = col("ImageURL");
+  const iInstr = col("TranslatedInstructions"), iOrigInstr = col("Instructions");
+  const seen = new Set();
+  const items = [];
+  for (let i = 1; i < lines.length; i++) {
+    const vals = lines[i].split(",").map(v => v.replace(/^"|"$/g, "").trim());
+    const recipe = {
+      id: vals[iId] || i,
+      RecipeName: vals[iOrigName] || "",
+      TranslatedRecipeName: vals[iName] || vals[iOrigName] || "",
+      Course: vals[iCourse] || "",
+      ImageURL: vals[iImage] || "",
+      Instructions: vals[iOrigInstr] || "",
+      TranslatedInstructions: vals[iInstr] || vals[iOrigInstr] || "",
+    };
+    const normalized = normalizeRecipe(recipe);
+    if (normalized.id && normalized.name && !seen.has(normalized.id)) {
+      seen.add(normalized.id);
+      items.push(normalized);
+      if (items.length >= 1000) break;
+    }
+  }
+  console.log(`Loaded ${items.length} items from CSV.`);
+  return items;
+};
+
+const CSVLoadedItems = loadMenuFromCSV();
+
 const COURSES_TO_FETCH = ["Lunch", "Dinner", "Snack", "Dessert", "Side Dish", "Appetizer", "South Indian Breakfast", "North Indian Breakfast", "World Breakfast", "Indian Breakfast"];
 const RECIPES_PER_COURSE = 15;
 
@@ -132,13 +173,22 @@ const loadMenuCatalog = async () => {
   console.log("Fetching recipes from Indian Recipe API...");
   const responses = await Promise.allSettled(COURSES_TO_FETCH.map((course) => fetchCourseRecipes(course)));
   const recipes = responses.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
-  if (recipes.length === 0) { console.warn("No recipes fetched from Indian API."); return []; }
-  console.log(`Fetched ${recipes.length} recipes from Indian API.`);
-  const uniqueRecipes = Array.from(new Map(recipes.map((r) => [r.id, r])).values());
-  menuCache.items = uniqueRecipes.map(normalizeRecipe).filter((item) => item.id && item.name);
-  menuCache.loaded = true;
-  console.log(`Menu catalog initialized with ${menuCache.items.length} Indian dishes.`);
-  return menuCache.items;
+  if (recipes.length > 0) {
+    console.log(`Fetched ${recipes.length} recipes from Indian API.`);
+    const uniqueRecipes = Array.from(new Map(recipes.map((r) => [r.id, r])).values());
+    menuCache.items = uniqueRecipes.map(normalizeRecipe).filter((item) => item.id && item.name);
+    menuCache.loaded = true;
+    console.log(`Menu catalog initialized with ${menuCache.items.length} Indian dishes.`);
+    return menuCache.items;
+  }
+  if (CSVLoadedItems.length > 0) {
+    console.warn("Indian API unreachable — using CSV fallback.");
+    menuCache.items = CSVLoadedItems;
+    menuCache.loaded = true;
+    return menuCache.items;
+  }
+  console.warn("No recipes fetched from Indian API or CSV.");
+  return [];
 };
 
 setInterval(async () => { if (menuCache.loaded) { menuCache.loaded = false; await loadMenuCatalog().catch(() => {}); } }, 300000);
@@ -153,8 +203,6 @@ const connectMongo = async () => {
   console.log("Connected to MongoDB");
 };
 
-app.get("/api/health", (_req, res) => { res.json({ ok: true, service: "restowebapp-api" }); });
-
 app.get("/", (_req, res) => { res.json({ success: true, message: "RestoWeb API is running" }); });
 
 app.use("/api/auth", authRoutes);
@@ -166,12 +214,16 @@ app.use("/api/tracking", trackingRoutes);
 app.use("/api/admin", adminRoutes);
 
 app.get("/api/health", (_req, res) => {
+  const src = menuCache.loaded && menuCache.items.length > 0
+    ? (menuCache.items === CSVLoadedItems ? "csv" : "indian")
+    : "fallback";
   res.json({
     status: "ok",
     uptime: process.uptime(),
     timestamp: Date.now(),
     mongodb: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
-    menuSource: menuCache.loaded && menuCache.items.length > 0 ? "indian" : "fallback",
+    menuSource: src,
+    menuCount: menuCache.items.length || fallbackMenuItems.length,
   });
 });
 
@@ -186,9 +238,10 @@ app.get("/api/menu", async (req, res) => {
       const matchesSearch = !query || item.name.toLowerCase().includes(query);
       return matchesCategory && matchesSearch;
     });
-    res.json({ source: items === fallbackMenuItems ? "fallback" : "indian", items: filteredItems, categories: ["All", ...fixedMenuCategories], fallback: items === fallbackMenuItems });
+    const source = items === fallbackMenuItems ? "fallback" : (items === CSVLoadedItems ? "csv" : "indian");
+    res.json({ source, items: filteredItems, categories: ["All", ...fixedMenuCategories], fallback: items === fallbackMenuItems });
   } catch (error) {
-    res.json({ source: "fallback", items: fallbackMenuItems, categories: ["All", ...fixedMenuCategories], fallback: true, warning: error instanceof Error ? error.message : "Unknown error" });
+    res.json({ source: items === fallbackMenuItems ? "fallback" : (items === CSVLoadedItems ? "csv" : "indian"), items: filteredItems, categories: ["All", ...fixedMenuCategories], fallback: items === fallbackMenuItems });
   }
 });
 
