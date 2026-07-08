@@ -118,56 +118,16 @@ const fetchWithRetry = async (url, retries = 3, timeoutMs = 8000) => {
 };
 
 const loadMenuFromCSV = () => {
-  const csvPath = path.join(__dirname, "..", "indian-api", "recipes.csv");
-  if (!fs.existsSync(csvPath)) { console.warn("CSV file not found at", csvPath); return []; }
-  console.log("Loading menu from CSV...");
-  const text = fs.readFileSync(csvPath, "utf-8");
-  const lines = text.split("\n").filter(Boolean);
-  if (lines.length < 2) { console.warn("CSV has no data rows"); return []; }
-
-  // Parse CSV properly: handle quoted fields with embedded commas
-  const parseRow = (line) => {
-    const cols = [];
-    let cur = "", inQ = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') { inQ = !inQ; continue; }
-      if (ch === "," && !inQ) { cols.push(cur.trim()); cur = ""; continue; }
-      cur += ch;
+  const jsonPath = path.join(__dirname, "menu-items.json");
+  if (!fs.existsSync(jsonPath)) { console.warn("Menu JSON not found at", jsonPath); return []; }
+  try {
+    const data = JSON.parse(fs.readFileSync(jsonPath, "utf-8"));
+    if (Array.isArray(data) && data.length > 0) {
+      console.log(`Loaded ${data.length} items from menu-items.json.`);
+      return data;
     }
-    cols.push(cur.trim());
-    return cols;
-  };
-
-  const headers = parseRow(lines[0]);
-  const col = (name) => { const idx = headers.indexOf(name); return idx >= 0 ? idx : -1; };
-  const iId = col("id"), iName = col("TranslatedRecipeName"), iOrigName = col("RecipeName");
-  const iCourse = col("Course"), iImage = col("ImageURL");
-  const iInstr = col("TranslatedInstructions"), iOrigInstr = col("Instructions");
-  if (iId < 0 || iName < 0) { console.warn("CSV missing required columns"); return []; }
-
-  const seen = new Set();
-  const items = [];
-  for (let i = 1; i < lines.length; i++) {
-    const vals = parseRow(lines[i]);
-    const recipe = {
-      id: vals[iId] || i,
-      RecipeName: vals[iOrigName] || "",
-      TranslatedRecipeName: vals[iName] || vals[iOrigName] || "",
-      Course: vals[iCourse] || "",
-      ImageURL: vals[iImage] || "",
-      Instructions: vals[iOrigInstr] || "",
-      TranslatedInstructions: vals[iInstr] || vals[iOrigInstr] || "",
-    };
-    const normalized = normalizeRecipe(recipe);
-    if (normalized.id && normalized.name && !seen.has(normalized.id)) {
-      seen.add(normalized.id);
-      items.push(normalized);
-      if (items.length >= 1000) break;
-    }
-  }
-  console.log(`Loaded ${items.length} items from CSV.`);
-  return items;
+  } catch (e) { console.warn("Failed to parse menu JSON:", e.message); }
+  return [];
 };
 
 const CSVLoadedItems = loadMenuFromCSV();
