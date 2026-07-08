@@ -3,6 +3,18 @@ import User from "../models/User.js";
 
 const sendNotFound = (res, message) => res.status(404).json({ message });
 
+export const getMe = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select("-password");
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    res.json({ success: true, user });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export const getUsers = async (_req, res) => {
   try {
     const users = await User.find().sort({ createdAt: -1 });
@@ -100,11 +112,13 @@ export const updateUser = async (req, res) => {
   } catch (error) {
     if (error?.code === 11000) {
       return res.status(409).json({
+        success: false,
         message: "A user with this phone number already exists.",
       });
     }
 
     res.status(500).json({
+      success: false,
       message: "Unable to update user.",
       error: error instanceof Error ? error.message : "Unknown error",
     });

@@ -1,164 +1,172 @@
-import React, { useEffect, useState } from "react";
-import { ArrowLeft, BadgeIndianRupee, CreditCard, MapPin, Package, Phone, Truck } from "lucide-react";
+import React, { useEffect, useState, useRef } from "react";
+import { ArrowLeft, CreditCard, MapPin, AlertCircle, Check } from "lucide-react";
+import { useAuth } from "../../context/AuthContext";
+import { useCart } from "../../context/CartContext";
+import MapSelector from "../Tracking/MapSelector";
+import PaymentModal from "../Payment/PaymentModal";
+import DeliveryTracker from "../Tracking/DeliveryTracker";
 import "./OrderDetails.css";
 
 const formatCurrency = (value) => `${value}₹`;
-
 const parsePrice = (price) => Number(String(price).replace(/[^\d]/g, "")) || 0;
 
-const buildFormState = (currentUser) => ({
-  fullName: currentUser?.fullName || "",
-  phone: currentUser?.phone || "",
-  address: currentUser?.address || "",
-  landmark: currentUser?.landmark || "",
-  deliveryTime: currentUser?.deliveryTime || "asap",
-  paymentMethod: "upi-card",
-});
-
-const OrderDetails = ({ cartSummary, onBackToMenu, onPlaceOrder, currentUser }) => {
+const OrderDetails = ({ cartSummary, onBackToMenu, onPlaceOrder }) => {
+  const { user: currentUser } = useAuth();
+  const { setCartItems } = useCart();
   const [formData, setFormData] = useState({
-    fullName: "",
-    phone: "",
-    address: "",
-    landmark: "",
-    deliveryTime: "asap",
-    paymentMethod: "upi-card",
+    customerName: "", phone: "", address: "", landmark: "", deliveryTime: "asap", paymentMethod: "upi-card",
   });
-  const [submitState, setSubmitState] = useState({
-    status: "idle",
-    message: "",
-    orderId: "",
-    user: null,
-  });
+  const [errors, setErrors] = useState({});
+  const [submitState, setSubmitState] = useState({ status: "idle", message: "", orderId: "" });
+  const [customerLocation, setCustomerLocation] = useState(null);
+  const [showPayment, setShowPayment] = useState(false);
+  const [placedOrderId, setPlacedOrderId] = useState(null);
+  const formRef = useRef(null);
 
   useEffect(() => {
-    setFormData(buildFormState(currentUser));
+    if (currentUser) {
+      setFormData((prev) => ({
+        ...prev, customerName: currentUser.fullName || "", phone: currentUser.phone || "",
+        address: currentUser.address || "", landmark: currentUser.landmark || "",
+      }));
+    }
   }, [currentUser]);
+
+  const validateForm = () => {
+    const newErrors = {};
+    if (!formData.customerName.trim()) newErrors.customerName = "Name is required";
+    else if (formData.customerName.length < 3) newErrors.customerName = "Name must be at least 3 characters";
+    else if (!/^[a-zA-Z\s]+$/.test(formData.customerName)) newErrors.customerName = "Name can only contain letters and spaces";
+    if (!formData.phone) newErrors.phone = "Phone number is required";
+    else if (!/^\d{10}$/.test(formData.phone)) newErrors.phone = "Phone must be exactly 10 digits";
+    if (!formData.address.trim()) newErrors.address = "Delivery address is required";
+    if (!formData.landmark.trim()) newErrors.landmark = "Landmark is required";
+    if (!customerLocation) newErrors.location = "Please select your delivery location on the map";
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const handleChange = (event) => {
     const { name, value } = event.target;
-
-    setFormData((current) => ({
-      ...current,
-      [name]: value,
-    }));
+    setFormData((current) => ({ ...current, [name]: value }));
+    if (errors[name]) setErrors((prev) => ({ ...prev, [name]: "" }));
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-
+    if (!validateForm()) {
+      formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    setSubmitState({ status: "submitting", message: "", orderId: "" });
     try {
-      setSubmitState({ status: "submitting", message: "", orderId: "", user: null });
-
       const payload = {
-        userId: currentUser?._id,
-        customer: {
-          fullName: formData.fullName,
-          phone: formData.phone,
-          address: formData.address,
-          landmark: formData.landmark,
-          deliveryTime: formData.deliveryTime,
-        },
-        paymentMethod: formData.paymentMethod,
+        ...formData,
         items: cartSummary.items.map((item) => ({
-          id: item.id,
-          name: item.name,
-          category: item.category,
-          image: item.image,
-          price: parsePrice(item.price),
-          quantity: item.quantity,
+          id: item.id, name: item.name, category: item.category, image: item.image,
+          price: parsePrice(item.price), quantity: item.quantity,
         })),
-        totals: {
-          subtotal: cartSummary.subtotal,
-          deliveryFee: cartSummary.deliveryFee,
-          tax: cartSummary.tax,
-          total: cartSummary.total,
-        },
+        totals: { subtotal: cartSummary.subtotal, deliveryFee: cartSummary.deliveryFee, tax: cartSummary.tax, total: cartSummary.total },
+        customerLocation,
+        paymentMethod: formData.paymentMethod,
       };
-
       const result = await onPlaceOrder(payload);
-
-      setSubmitState({
-        status: "success",
-        message: result.message || "Order saved to MongoDB successfully.",
-        orderId: result.orderId || result.order?._id || "",
-        user: result.order?.user || {
-          fullName: formData.fullName,
-          phone: formData.phone,
-          address: formData.address,
-          landmark: formData.landmark,
-          deliveryTime: formData.deliveryTime,
-        },
-      });
+      if (result.success) {
+        setPlacedOrderId(result.order?._id || "");
+        if (formData.paymentMethod === "cod") {
+          setSubmitState({ status: "success", message: result.message || "Order placed successfully!", orderId: result.order?._id || "" });
+          setCartItems([]);
+        } else {
+          setSubmitState({ status: "idle", message: "", orderId: result.order?._id || "" });
+          setShowPayment(true);
+        }
+      } else {
+        throw new Error(result.message || "Order placement failed");
+      }
     } catch (error) {
-      setSubmitState({
-        status: "error",
-        message: error instanceof Error ? error.message : "Unable to place order.",
-        orderId: "",
-        user: null,
-      });
+      setSubmitState({ status: "error", message: error.message || "Unable to place order.", orderId: "" });
     }
   };
 
+  const handlePaymentComplete = async (method, txId) => {
+    setShowPayment(false);
+    setCartItems([]);
+    setSubmitState({ status: "success", message: "Order placed successfully!", orderId: placedOrderId });
+  };
+
+  if (placedOrderId && cartSummary.items.length === 0) {
+    return (
+      <main className="order-page">
+        <header className="order-header-card">
+          <button type="button" className="back-button" onClick={onBackToMenu}>
+            <ArrowLeft size={16} /> Back to menu
+          </button>
+          <div className="order-header-copy">
+            <span className="order-kicker">Order Placed</span>
+            <h1>Your order is confirmed!</h1>
+            <p>Order ID: <strong>{placedOrderId}</strong></p>
+          </div>
+        </header>
+        <DeliveryTracker
+          orderId={placedOrderId}
+          customerLocation={customerLocation}
+          restaurantLocation={{ latitude: 19.076, longitude: 72.8777 }}
+        />
+      </main>
+    );
+  }
+
   return (
     <main className="order-page">
-      <section className="order-header-card">
+      <header className="order-header-card" ref={formRef}>
         <button type="button" className="back-button" onClick={onBackToMenu}>
           <ArrowLeft size={16} /> Back to menu
         </button>
-
         <div className="order-header-copy">
-          <span className="order-kicker">Order details</span>
-          <h1>Review your order and complete payment in one place.</h1>
-          <p>
-            This is the same page your menu buttons open. Add dishes, review your summary, and finish checkout without leaving the app.
-          </p>
-          {currentUser?._id ? <span className="order-profile-note">Checkout is connected to {currentUser.fullName}.</span> : null}
+          <span className="order-kicker">Checkout</span>
+          <h1>Almost there!</h1>
+          <p>Confirm your details and place your order.</p>
+          {currentUser && <span className="order-profile-note">Logged in as {currentUser.fullName}</span>}
         </div>
-
         <div className="order-progress">
-          <div className="progress-step active">
-            <Package size={16} /> Order
-          </div>
-          <div className="progress-step active">
-            <CreditCard size={16} /> Payment
-          </div>
-          <div className="progress-step">
-            <Truck size={16} /> Delivery
-          </div>
+          <div className="progress-step completed"><span className="step-circle"><Check size={14} /></span> Order</div>
+          <span className="progress-line" />
+          <div className="progress-step active"><span className="step-circle">2</span> Payment</div>
+          <span className="progress-line" />
+          <div className="progress-step"><span className="step-circle">3</span> Delivery</div>
         </div>
-      </section>
+      </header>
 
       <form className="order-layout" onSubmit={handleSubmit}>
         <div className="order-details-column">
-          <div className="details-card">
+          <div className="card">
             <div className="card-heading">
-              <div>
-                <span className="card-kicker">Delivery address</span>
-                <h2>Where should we send it?</h2>
-              </div>
-              <MapPin size={18} />
+              <MapPin size={20} />
+              <div><span className="card-kicker">Delivery Details</span><h2>Where should we send your food?</h2></div>
             </div>
-
             <div className="form-grid">
-              <label>
-                Full name
-                <input name="fullName" value={formData.fullName} onChange={handleChange} type="text" placeholder="Priyanka Sharma" required />
+              <label className={errors.customerName ? "has-error" : ""}>
+                Recipient Name
+                <input name="customerName" value={formData.customerName} onChange={handleChange} type="text" placeholder="Priyanka Bhandari" className={errors.customerName ? "input-error" : ""} />
+                {errors.customerName && <span className="field-error"><AlertCircle size={12}/> {errors.customerName}</span>}
               </label>
-              <label>
-                Phone number
-                <input name="phone" value={formData.phone} onChange={handleChange} type="tel" placeholder="98765 43210" required />
+              <label className={errors.phone ? "has-error" : ""}>
+                Phone Number
+                <input name="phone" value={formData.phone} onChange={handleChange} type="tel" placeholder="1234567890" className={errors.phone ? "input-error" : ""} />
+                {errors.phone && <span className="field-error"><AlertCircle size={12}/> {errors.phone}</span>}
               </label>
-              <label className="full-width">
-                Delivery address
-                <textarea name="address" value={formData.address} onChange={handleChange} rows="4" placeholder="Flat no, street, area, city" required />
+              <label className={`full-width ${errors.address ? "has-error" : ""}`}>
+                Delivery Address
+                <textarea name="address" value={formData.address} onChange={handleChange} rows="2" placeholder="Flat no, Street name, Building, Area" className={errors.address ? "input-error" : ""} />
+                {errors.address && <span className="field-error"><AlertCircle size={12}/> {errors.address}</span>}
               </label>
-              <label>
+              <label className={errors.landmark ? "has-error" : ""}>
                 Landmark
-                <input name="landmark" value={formData.landmark} onChange={handleChange} type="text" placeholder="Near main market" />
+                <input name="landmark" value={formData.landmark} onChange={handleChange} type="text" placeholder="Near Post Office" className={errors.landmark ? "input-error" : ""} />
+                {errors.landmark && <span className="field-error"><AlertCircle size={12}/> {errors.landmark}</span>}
               </label>
               <label>
-                Delivery time
+                Delivery Time
                 <select name="deliveryTime" value={formData.deliveryTime} onChange={handleChange}>
                   <option value="asap">As soon as possible</option>
                   <option value="30">In 30 minutes</option>
@@ -166,118 +174,57 @@ const OrderDetails = ({ cartSummary, onBackToMenu, onPlaceOrder, currentUser }) 
                 </select>
               </label>
             </div>
-          </div>
 
-          <div className="details-card">
-            <div className="card-heading">
-              <div>
-                <span className="card-kicker">Payment</span>
-                <h2>Choose how you want to pay</h2>
-              </div>
-              <CreditCard size={18} />
-            </div>
-
-            <div className="payment-options">
-              <label className="payment-option active">
-                <input type="radio" name="paymentMethod" value="upi-card" checked={formData.paymentMethod === "upi-card"} onChange={handleChange} />
-                <div>
-                  <strong>UPI / Card</strong>
-                  <span>Pay securely online</span>
-                </div>
-              </label>
-              <label className="payment-option">
-                <input type="radio" name="paymentMethod" value="cod" checked={formData.paymentMethod === "cod"} onChange={handleChange} />
-                <div>
-                  <strong>Cash on delivery</strong>
-                  <span>Pay when your order arrives</span>
-                </div>
-              </label>
-            </div>
-
-            <div className="support-line">
-              <Phone size={16} /> Need help? Call delivery support on +91 90000 12345
+            <div className="full-width">
+              <MapSelector onLocationSelect={setCustomerLocation} />
+              {errors.location && <p className="field-error" style={{ marginTop: "0.35rem" }}><AlertCircle size={12}/> {errors.location}</p>}
             </div>
           </div>
+
         </div>
 
         <aside className="summary-card">
           <div className="summary-heading">
-            <div>
-              <span className="card-kicker">Order summary</span>
-              <h2>{cartSummary.items.length} items</h2>
-            </div>
-            <span className="summary-badge">Live</span>
+            <div><span className="card-kicker">Order Summary</span><h2>{cartSummary.items.length} Item{cartSummary.items.length !== 1 ? "s" : ""}</h2></div>
           </div>
-
           {cartSummary.items.length > 0 ? (
             <>
               <div className="summary-items">
                 {cartSummary.items.map((item) => (
-                  <div className="summary-item" key={`${item.id}-${item.quantity}`}>
-                    <div>
-                      <strong>{item.name}</strong>
-                      <p>{item.category}</p>
-                    </div>
-                    <div className="summary-item-meta">
-                      <span>{item.quantity}x</span>
-                      <strong>{item.price}</strong>
-                    </div>
+                  <div className="summary-item" key={item.id}>
+                    <div><strong>{item.name}</strong><p>{item.category}</p></div>
+                    <div className="summary-item-meta"><span>{item.quantity}x</span><strong>{item.price}</strong></div>
                   </div>
                 ))}
               </div>
-
               <div className="summary-breakdown">
-                <div>
-                  <span>Subtotal</span>
-                  <strong><BadgeIndianRupee size={14} /> {cartSummary.subtotal}</strong>
-                </div>
-                <div>
-                  <span>Delivery fee</span>
-                  <strong><BadgeIndianRupee size={14} /> {cartSummary.deliveryFee}</strong>
-                </div>
-                <div>
-                  <span>Taxes</span>
-                  <strong><BadgeIndianRupee size={14} /> {cartSummary.tax}</strong>
-                </div>
+                <div><span>Subtotal</span><strong>{formatCurrency(cartSummary.subtotal)}</strong></div>
+                <div><span>Delivery</span><strong>{formatCurrency(cartSummary.deliveryFee)}</strong></div>
+                <div><span>Taxes (5%)</span><strong>{formatCurrency(cartSummary.tax)}</strong></div>
               </div>
-
-              <div className="summary-total">
-                <span>Total payable</span>
-                <strong>{formatCurrency(cartSummary.total)}</strong>
-              </div>
-
-              <button type="submit" className="place-order-button" disabled={submitState.status === "submitting"}>
-                {submitState.status === "submitting" ? "Placing order..." : "Place secure order"}
+              <div className="summary-total"><span>Total Payable</span><strong>{formatCurrency(cartSummary.total)}</strong></div>
+              <button type="submit" className="place-order-button">
+                {`Place order — ${formatCurrency(cartSummary.total)}`}
               </button>
-
-              {submitState.status === "success" ? (
-                <div className="order-success">
-                  <strong>{submitState.message}</strong>
-                  {submitState.orderId ? <span>Order ID: {submitState.orderId}</span> : null}
-                  {submitState.user ? (
-                    <span>
-                      Customer: {submitState.user.fullName || formData.fullName} | {submitState.user.phone || formData.phone}
-                    </span>
-                  ) : null}
-                  {submitState.user?.address ? <span>Address: {submitState.user.address}</span> : null}
-                </div>
-              ) : null}
-
-              {submitState.status === "error" ? (
-                <div className="order-error">
-                  <strong>Order could not be saved.</strong>
-                  <span>{submitState.message}</span>
-                </div>
-              ) : null}
             </>
           ) : (
-            <div className="summary-empty">
-              <h3>Your cart is empty.</h3>
-              <p>Add food items from the menu to see the full order summary here.</p>
-            </div>
+            <div className="summary-empty"><h3>Cart is empty</h3><p>Add some delicious meals from the menu first!</p></div>
           )}
         </aside>
       </form>
+
+      {submitState.status === "error" && (
+        <div className="order-banner error">{submitState.message}</div>
+      )}
+
+      {showPayment && placedOrderId && (
+        <PaymentModal
+          orderId={placedOrderId}
+          amount={cartSummary.total}
+          onClose={() => setShowPayment(false)}
+          onPaymentComplete={handlePaymentComplete}
+        />
+      )}
     </main>
   );
 };

@@ -1,3 +1,3 @@
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "https://srv-d8em2o4m0tmc73f05g5g.onrender.com";
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
 export const apiUrl = (path) => `${apiBaseUrl}${path}`;

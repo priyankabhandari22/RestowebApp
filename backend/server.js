@@ -4,237 +4,192 @@ import dotenv from "dotenv";
 import mongoose from "mongoose";
 import fs from "fs";
 import path from "path";
+import http from "http";
+import { Server as SocketIOServer } from "socket.io";
 import { fileURLToPath } from "url";
 import orderRoutes from "./routes/orderRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
+import authRoutes from "./routes/authRoutes.js";
+import paymentRoutes from "./routes/paymentRoutes.js";
+import deliveryRoutes from "./routes/deliveryRoutes.js";
+import trackingRoutes from "./routes/trackingRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
+import jwt from "jsonwebtoken";
+import DeliveryAgent from "./models/DeliveryAgent.js";
 
 dotenv.config();
 
 const app = express();
+const server = http.createServer(app);
 const port = process.env.PORT || 5000;
-const mealDbBaseUrl = process.env.THEMEALDB_BASE_URL || "https://www.themealdb.com/api/json/v1/1";
+const indianApiUrl = (process.env.INDIAN_RECIPE_API_URL || "http://localhost:3001").replace(/\/+$/, "");
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distPath = path.join(__dirname, "..", "frontend", "dist");
 const distIndexPath = path.join(distPath, "index.html");
 
-const allowedOrigins = new Set([
-  process.env.CLIENT_ORIGIN,
-  "http://localhost:5173",
-  "http://localhost:5174",
-].filter(Boolean));
-
-const corsOptions = {
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.has(origin) || /^http:\/\/localhost:\d+$/.test(origin)) {
-      return callback(null, true);
-    }
-
-    return callback(new Error(`CORS blocked for origin: ${origin}`));
-  },
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  optionsSuccessStatus: 204,
-};
-
-app.use(cors(corsOptions));
-app.options(/.*/, cors(corsOptions));
+app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const menuCache = {
-  items: [],
-  loaded: false,
-};
+const io = new SocketIOServer(server, {
+  cors: { origin: process.env.CLIENT_ORIGIN || "http://localhost:5173", methods: ["GET", "POST"] },
+});
+app.set("io", io);
 
-const sampleLetters = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token;
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "fallback_secret");
+      socket.userId = decoded.id;
+    } catch {
+      // allow connection without user identity
+    }
+  }
+  next();
+});
+
+io.on("connection", (socket) => {
+  socket.on("join-order", (orderId) => {
+    socket.join(`order_${orderId}`);
+  });
+
+  socket.on("leave-order", (orderId) => {
+    socket.leave(`order_${orderId}`);
+  });
+
+  socket.on("agent-location-update", async (data) => {
+    const { orderId, latitude, longitude } = data;
+    io.to(`order_${orderId}`).emit("rider-location", { latitude, longitude, timestamp: new Date() });
+  });
+
+  socket.on("disconnect", () => {});
+});
+
+const menuCache = { items: [], loaded: false };
 
 const fallbackMenuItems = [
-  {
-    id: 1,
-    name: "Maggi",
-    image: "/images/Maggi.jpg",
-    category: "Breakfast",
-    price: "25₹",
-    description: "Quick noodles served hot and fresh.",
-  },
-  {
-    id: 2,
-    name: "Rajma Rice",
-    image: "/images/rajmachawal.png",
-    category: "Lunch",
-    price: "100₹",
-    description: "Comforting rajma chawal with a simple homestyle taste.",
-  },
-  {
-    id: 3,
-    name: "Paneer Bowl",
-    image: "/images/paneer.jpg",
-    category: "Dinner",
-    price: "500₹",
-    description: "Paneer curry with fresh herbs and rich seasoning.",
-  },
+  { id: 1, name: "Maggi", image: "/images/Maggi.jpg", category: "Breakfast", price: "25₹", description: "Quick noodles served hot and fresh." },
+  { id: 2, name: "Rajma Rice", image: "/images/rajmachawal.png", category: "Lunch", price: "100₹", description: "Comforting rajma chawal with a simple homestyle taste." },
+  { id: 3, name: "Paneer Bowl", image: "/images/paneer.jpg", category: "Dinner", price: "500₹", description: "Paneer curry with fresh herbs and rich seasoning." },
 ];
-
-const normalizeThemealDbBaseUrl = (baseUrl) => {
-  const trimmedBaseUrl = String(baseUrl || "").trim().replace(/\/+$/, "");
-
-  if (!trimmedBaseUrl) {
-    return "https://www.themealdb.com/api/json/v1/1";
-  }
-
-  if (trimmedBaseUrl.endsWith("/v1")) {
-    return `${trimmedBaseUrl}/1`;
-  }
-
-  return trimmedBaseUrl;
-};
-
-const normalizedMealDbBaseUrl = normalizeThemealDbBaseUrl(mealDbBaseUrl);
 
 const fixedMenuCategories = ["Lunch", "Evening", "Dinner"];
 
-const mapMealCategoryToBucket = (category, mealName = "") => {
-  const value = `${category || ""} ${mealName || ""}`.toLowerCase();
-
-  if (value.includes("breakfast") || value.includes("vegetarian") || value.includes("vegan") || value.includes("starter") || value.includes("side") || value.includes("salad") || value.includes("soup")) {
-    return "Lunch";
-  }
-
-  if (value.includes("dessert") || value.includes("pasta") || value.includes("miscellaneous") || value.includes("baked")) {
-    return "Evening";
-  }
-
-  if (value.includes("beef") || value.includes("chicken") || value.includes("lamb") || value.includes("pork") || value.includes("goat") || value.includes("seafood") || value.includes("fish") || value.includes("duck") || value.includes("meat")) {
-    return "Dinner";
-  }
-
+const mapCourseToBucket = (course) => {
+  const value = (course || "").toLowerCase();
+  if (value.includes("breakfast") || value.includes("brunch") || value.includes("lunch") || value.includes("main course") || value.includes("one pot") || value.includes("vegetarian")) return "Lunch";
+  if (value.includes("side") || value.includes("snack") || value.includes("dessert") || value.includes("appetizer") || value.includes("starter")) return "Evening";
   return "Dinner";
 };
 
-const formatPrice = (seed) => {
-  const amount = 80 + (seed % 16) * 20;
-  return `${amount}₹`;
-};
+const formatPrice = (seed) => `${80 + (seed % 16) * 20}₹`;
 
-const buildDescription = (meal) => {
-  const text = meal.strInstructions || `${meal.strMeal} is a featured dish from our live menu.`;
+const buildDescription = (recipe) => {
+  const text = recipe.TranslatedInstructions || recipe.Instructions || `${recipe.TranslatedRecipeName || recipe.RecipeName} is a featured dish from our live menu.`;
   return text.replace(/\s+/g, " ").trim().slice(0, 140);
 };
 
-const normalizeMeal = (meal) => ({
-  id: Number(meal.idMeal),
-  name: meal.strMeal,
-  image: meal.strMealThumb,
-  category: mapMealCategoryToBucket(meal.strCategory, meal.strMeal),
-  originalCategory: meal.strCategory || "Specials",
-  price: formatPrice(Number(meal.idMeal) || 1),
-  description: buildDescription(meal),
+const normalizeRecipe = (recipe) => ({
+  id: Number(recipe.id),
+  name: recipe.TranslatedRecipeName || recipe.RecipeName,
+  image: recipe.ImageURL || "",
+  category: mapCourseToBucket(recipe.Course),
+  originalCategory: recipe.Course || "Specials",
+  price: formatPrice(Number(recipe.id) || 1),
+  description: buildDescription(recipe),
 });
 
-const fetchMealsByLetter = async (letter) => {
-  const response = await fetch(`${normalizedMealDbBaseUrl}/search.php?f=${letter}`);
-
-  if (!response.ok) {
-    throw new Error(`TheMealDB request failed for ${letter}`);
+const fetchWithRetry = async (url, retries = 3, timeoutMs = 8000) => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      if (attempt === retries) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+    }
   }
+};
 
-  const data = await response.json();
-  return Array.isArray(data.meals) ? data.meals : [];
+const COURSES_TO_FETCH = ["Lunch", "Dinner", "Snack", "Dessert", "Side Dish", "Appetizer", "South Indian Breakfast", "North Indian Breakfast", "World Breakfast", "Indian Breakfast"];
+const RECIPES_PER_COURSE = 15;
+
+const fetchCourseRecipes = async (course) => {
+  try {
+    const data = await fetchWithRetry(`${indianApiUrl}/recipes?course=${encodeURIComponent(course)}&limit=${RECIPES_PER_COURSE}`);
+    return Array.isArray(data.recipes) ? data.recipes : [];
+  } catch { return []; }
 };
 
 const loadMenuCatalog = async () => {
-  if (menuCache.loaded && menuCache.items.length > 0) {
-    return menuCache.items;
-  }
-
-  const responses = await Promise.allSettled(sampleLetters.map((letter) => fetchMealsByLetter(letter)));
-  const meals = responses.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
-  const uniqueMeals = Array.from(new Map(meals.map((meal) => [meal.idMeal, meal])).values());
-
-  menuCache.items = uniqueMeals.map(normalizeMeal).filter((item) => item.id && item.name && item.image);
+  if (menuCache.loaded && menuCache.items.length > 0) return menuCache.items;
+  console.log("Fetching recipes from Indian Recipe API...");
+  const responses = await Promise.allSettled(COURSES_TO_FETCH.map((course) => fetchCourseRecipes(course)));
+  const recipes = responses.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
+  if (recipes.length === 0) { console.warn("No recipes fetched from Indian API."); return []; }
+  console.log(`Fetched ${recipes.length} recipes from Indian API.`);
+  const uniqueRecipes = Array.from(new Map(recipes.map((r) => [r.id, r])).values());
+  menuCache.items = uniqueRecipes.map(normalizeRecipe).filter((item) => item.id && item.name);
   menuCache.loaded = true;
-
+  console.log(`Menu catalog initialized with ${menuCache.items.length} Indian dishes.`);
   return menuCache.items;
 };
 
+setInterval(async () => { if (menuCache.loaded) { menuCache.loaded = false; await loadMenuCatalog().catch(() => {}); } }, 300000);
+
 const connectMongo = async () => {
   const mongoUri = process.env.MONGODB_URI;
-
   if (!mongoUri || mongoUri.includes("<username>") || mongoUri.includes("<password>") || mongoUri.includes("<cluster>")) {
-    console.warn("MONGODB_URI is not set. Order saving will be disabled until you add it to .env.");
+    console.warn("MONGODB_URI is not set. Order saving will be disabled.");
     return;
   }
-
   await mongoose.connect(mongoUri);
   console.log("Connected to MongoDB");
 };
 
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, service: "restowebapp-api" });
-});
+app.get("/api/health", (_req, res) => { res.json({ ok: true, service: "restowebapp-api" }); });
 
-app.get("/", (_req, res) => {
-  res.json({
-    success: true,
-    message: "RestoWeb API is running",
-  });
-});
+app.get("/", (_req, res) => { res.json({ success: true, message: "RestoWeb API is running" }); });
 
+app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/orders", orderRoutes);
+app.use("/api/payments", paymentRoutes);
+app.use("/api/delivery", deliveryRoutes);
+app.use("/api/tracking", trackingRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.get("/api/menu", async (req, res) => {
   try {
     let items = await loadMenuCatalog();
-
-    if (!items || items.length === 0) {
-      items = fallbackMenuItems;
-    }
-
+    if (!items || items.length === 0) items = fallbackMenuItems;
     const query = String(req.query.search || "").trim().toLowerCase();
     const category = String(req.query.category || "All");
-
     const filteredItems = items.filter((item) => {
       const matchesCategory = category === "All" || item.category === category;
       const matchesSearch = !query || item.name.toLowerCase().includes(query);
-
       return matchesCategory && matchesSearch;
     });
-
-    res.json({
-      source: "themealdb",
-      items: filteredItems,
-      categories: ["All", ...fixedMenuCategories],
-      fallback: items === fallbackMenuItems,
-    });
+    res.json({ source: items === fallbackMenuItems ? "fallback" : "indian", items: filteredItems, categories: ["All", ...fixedMenuCategories], fallback: items === fallbackMenuItems });
   } catch (error) {
-    res.json({
-      source: "fallback",
-      items: fallbackMenuItems,
-      categories: ["All", ...fixedMenuCategories],
-      fallback: true,
-      warning: error instanceof Error ? error.message : "Unknown error",
-    });
+    res.json({ source: "fallback", items: fallbackMenuItems, categories: ["All", ...fixedMenuCategories], fallback: true, warning: error instanceof Error ? error.message : "Unknown error" });
   }
 });
 
 if (fs.existsSync(distIndexPath)) {
   app.use(express.static(distPath));
-
-  app.get(/^(?!\/api).*/, (_req, res) => {
-    res.sendFile(distIndexPath);
-  });
+  app.get(/^(?!\/api).*/, (_req, res) => { res.sendFile(distIndexPath); });
 }
 
 const startServer = async () => {
-  await connectMongo().catch((error) => {
-    console.warn(error instanceof Error ? error.message : error);
-  });
-
-  app.listen(port, () => {
-    console.log(`Server listening on http://localhost:${port}`);
-  });
+  await connectMongo().catch((error) => { console.warn(error instanceof Error ? error.message : error); });
+  server.listen(port, () => { console.log(`Server listening on http://localhost:${port}`); });
 };
 
 startServer();

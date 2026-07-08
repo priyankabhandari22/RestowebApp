@@ -1,3 +1,33 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700;9..144,800&family=Inter:wght@400;500;600;700;800&display=swap');
+
+:root {
+	--bg-primary: #FBF7F2;
+	--bg-secondary: #ffffff;
+	--text-primary: #1E1B18;
+	--text-secondary: #8A8078;
+	--accent-gradient: linear-gradient(135deg, #E85D2A, #C7481D);
+	--accent-primary: #E85D2A;
+	--accent-dark: #C7481D;
+	--border-color: #EDE6DD;
+	--header-bg: rgba(255, 255, 255, 0.85);
+	--card-shadow: 0 2px 8px rgba(30, 27, 24, 0.06);
+	--font-serif: 'Fraunces', Georgia, serif;
+	--font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+[data-theme='dark'] {
+	--bg-primary: #1A1714;
+	--bg-secondary: #2A2724;
+	--text-primary: #F5F0EB;
+	--text-secondary: #A09890;
+	--accent-gradient: linear-gradient(135deg, #E85D2A, #C7481D);
+	--accent-primary: #E85D2A;
+	--accent-dark: #C7481D;
+	--border-color: #3A3530;
+	--header-bg: rgba(42, 39, 36, 0.85);
+	--card-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
 *,
 *::before,
 *::after {
@@ -10,10 +40,11 @@ html {
 
 body {
 	margin: 0;
-	font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-	color: #0f172a;
-	background: #f8fafc;
+	font-family: var(--font-sans);
+	color: var(--text-primary);
+	background: var(--bg-primary);
 	overflow-x: hidden;
+	transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 button,

@@ -1,545 +1,210 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import fallbackMenu from "./Menuapi";
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import MenuCard from "./MenuCard";
 import Nav from "../Navbar/Nav";
-import { ArrowRight, BadgeIndianRupee, ChefHat, Clock3, Flame, LogIn, LogOut, Minus, Plus, Save, ShoppingBag, Star, UserRound } from "lucide-react";
+import { ShoppingBag } from "lucide-react";
 import "./Resturant.css";
-import OrderDetails from "./OrderDetails";
-import AdminDashboard from "./AdminDashboard";
-import { createOrder, createUser, getMenu, getUsers, updateUser } from "../../services/restoApi";
-
-const storageKey = "restowebapp-current-user";
-
-const createEmptyAccountForm = () => ({
-  fullName: "",
-  phone: "",
-  address: "",
-  landmark: "",
-  deliveryTime: "asap",
-});
-
-const normalizePhone = (phone) => String(phone || "").replace(/\D/g, "");
-
-const buildAccountForm = (user) => ({
-  fullName: user?.fullName || "",
-  phone: user?.phone || "",
-  address: user?.address || "",
-  landmark: user?.landmark || "",
-  deliveryTime: user?.deliveryTime || "asap",
-});
+import { useAuth } from "../../context/AuthContext";
+import { useCart } from "../../context/CartContext";
+import { getMenu } from "../../services/restoApi";
 
 const Resturant = () => {
+  const { user: currentUser, logout } = useAuth();
+  const { cartSummary, addToCart, incrementItem, decrementItem, removeFromCart } = useCart();
+  const navigate = useNavigate();
   const [activeCategory, setActiveCategory] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
-  const [cartItems, setCartItems] = useState([]);
-  const [activeView, setActiveView] = useState("menu");
-  const [menuItems, setMenuItems] = useState(fallbackMenu);
+  const [menuItems, setMenuItems] = useState([]);
   const [menuLoading, setMenuLoading] = useState(true);
   const [menuError, setMenuError] = useState("");
-  const [currentUser, setCurrentUser] = useState(null);
-  const [accountForm, setAccountForm] = useState(createEmptyAccountForm());
-  const [accountLoading, setAccountLoading] = useState(false);
-  const [accountStatus, setAccountStatus] = useState({ type: "idle", message: "" });
-  const accountSectionRef = useRef(null);
   const menuList = ["All", "Lunch", "Evening", "Dinner"];
+  const heroImages = ["/images/chicken.jpg","/images/daalrice.jpg","/images/Dosa.jpg","/images/Maggi.jpg","/images/momo.jpg","/images/noodles.jpg","/images/paneer.jpg","/images/rajmachawal.png"];
+  const [currentImageIdx, setCurrentImageIdx] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentImageIdx((prev) => (prev + 1) % heroImages.length);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [heroImages.length]);
 
   useEffect(() => {
     const loadMenu = async () => {
       try {
         const data = await getMenu();
-        setMenuItems(Array.isArray(data.items) && data.items.length > 0 ? data.items : fallbackMenu);
-        setMenuError("");
+        if (Array.isArray(data.items)) {
+          setMenuItems(data.items);
+        } else {
+          setMenuError("Unexpected menu data format");
+        }
       } catch (error) {
-        setMenuItems(fallbackMenu);
-        setMenuError(error instanceof Error ? error.message : "Unable to load live menu");
+        setMenuError(error.message || "Unable to load menu");
       } finally {
         setMenuLoading(false);
       }
     };
-
     loadMenu();
   }, []);
 
-  useEffect(() => {
-    const storedUser = window.localStorage.getItem(storageKey);
-
-    if (!storedUser) {
-      return;
-    }
-
-    try {
-      const parsedUser = JSON.parse(storedUser);
-
-      if (parsedUser && parsedUser._id) {
-        setCurrentUser(parsedUser);
-        setAccountForm(buildAccountForm(parsedUser));
-      }
-    } catch {
-      window.localStorage.removeItem(storageKey);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (currentUser) {
-      window.localStorage.setItem(storageKey, JSON.stringify(currentUser));
-      setAccountForm(buildAccountForm(currentUser));
-    } else {
-      window.localStorage.removeItem(storageKey);
-      setAccountForm(createEmptyAccountForm());
-    }
-  }, [currentUser]);
-
   const menuData = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
-
     return menuItems.filter((item) => {
       const matchesCategory = activeCategory === "All" || item.category === activeCategory;
       const matchesSearch = !query || item.name.toLowerCase().includes(query);
-
       return matchesCategory && matchesSearch;
     });
   }, [activeCategory, searchTerm, menuItems]);
 
-  const cartSummary = useMemo(() => {
-    const items = cartItems.reduce((accumulator, item) => {
-      const existingItem = accumulator.find((cartItem) => cartItem.id === item.id);
-
-      if (existingItem) {
-        existingItem.quantity += 1;
-      } else {
-        accumulator.push({ ...item, quantity: 1 });
-      }
-
-      return accumulator;
-    }, []);
-
-    const subtotal = items.reduce((sum, item) => sum + Number(item.price.replace(/[^\d]/g, "")) * item.quantity, 0);
-    const deliveryFee = subtotal > 0 ? 49 : 0;
-    const tax = Math.round(subtotal * 0.05);
-
-    return {
-      items,
-      subtotal,
-      deliveryFee,
-      tax,
-      total: subtotal + deliveryFee + tax,
-    };
-  }, [cartItems]);
-
-  const filterItem = (category) => {
-    setActiveCategory(category);
-  };
-
-  const viewAccount = () => {
-    accountSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-  };
-
-  const addToCart = (item) => {
-    setCartItems((currentItems) => [...currentItems, item]);
-  };
-
-  const addToCartAndOpenOrder = (item) => {
-    addToCart(item);
-    setActiveView("order");
-  };
-
   const openOrderPage = () => {
-    setActiveView("order");
+    if (!currentUser) navigate("/auth");
+    else navigate("/order");
   };
-
-  const openAdminPage = () => {
-    setActiveView("admin");
-  };
-
-  const backToMenu = () => {
-    setActiveView("menu");
-  };
-
-  const removeFromCart = (itemId) => {
-    setCartItems((currentItems) => {
-      const nextItems = [...currentItems];
-      const itemIndex = nextItems.findIndex((cartItem) => cartItem.id === itemId);
-
-      if (itemIndex >= 0) {
-        nextItems.splice(itemIndex, 1);
-      }
-
-      return nextItems;
-    });
-  };
-
-  const handleAccountChange = (event) => {
-    const { name, value } = event.target;
-
-    setAccountForm((current) => ({
-      ...current,
-      [name]: value,
-    }));
-  };
-
-  const setAccountFeedback = (type, message) => {
-    setAccountStatus({ type, message });
-  };
-
-  const syncUserFromApi = async (phoneValue) => {
-    const normalizedInputPhone = normalizePhone(phoneValue);
-    const { users = [] } = await getUsers();
-    const matchedUser = users.find((user) => normalizePhone(user.phone) === normalizedInputPhone);
-
-    if (!matchedUser) {
-      throw new Error("No saved user found with that phone number.");
-    }
-
-    setCurrentUser(matchedUser);
-    setAccountFeedback("success", `Logged in as ${matchedUser.fullName}.`);
-    return matchedUser;
-  };
-
-  const handleRegister = async (event) => {
-    event.preventDefault();
-
-    try {
-      setAccountLoading(true);
-      setAccountFeedback("idle", "");
-
-      const payload = {
-        fullName: accountForm.fullName.trim(),
-        phone: accountForm.phone.trim(),
-        address: accountForm.address.trim(),
-        landmark: accountForm.landmark.trim(),
-        deliveryTime: accountForm.deliveryTime,
-      };
-
-      const normalizedInputPhone = normalizePhone(payload.phone);
-      const { users = [] } = await getUsers();
-      const existingUser = users.find((user) => normalizePhone(user.phone) === normalizedInputPhone);
-
-      if (existingUser) {
-        setCurrentUser(existingUser);
-        setAccountFeedback("success", `Profile already exists. Logged in as ${existingUser.fullName}.`);
-        return;
-      }
-
-      const response = await createUser(payload);
-      setCurrentUser(response.user);
-      setAccountFeedback("success", `Profile created for ${response.user.fullName}.`);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unable to register user.";
-      setAccountFeedback("error", errorMessage);
-    } finally {
-      setAccountLoading(false);
-    }
-  };
-
-  const handleLogin = async () => {
-    try {
-      setAccountLoading(true);
-      setAccountFeedback("idle", "");
-
-      if (!accountForm.phone.trim()) {
-        throw new Error("Enter a phone number to log in.");
-      }
-
-      await syncUserFromApi(accountForm.phone);
-    } catch (error) {
-      setAccountFeedback("error", error instanceof Error ? error.message : "Unable to log in.");
-    } finally {
-      setAccountLoading(false);
-    }
-  };
-
-  const handleLogout = () => {
-    setCurrentUser(null);
-    setAccountFeedback("success", "Logged out successfully.");
-  };
-
-  const handleProfileUpdate = async (event) => {
-    event.preventDefault();
-
-    try {
-      if (!currentUser?._id) {
-        throw new Error("Log in before updating your profile.");
-      }
-
-      setAccountLoading(true);
-      setAccountFeedback("idle", "");
-
-      const payload = {
-        fullName: accountForm.fullName.trim(),
-        phone: accountForm.phone.trim(),
-        address: accountForm.address.trim(),
-        landmark: accountForm.landmark.trim(),
-        deliveryTime: accountForm.deliveryTime,
-      };
-
-      const response = await updateUser(currentUser._id, payload);
-      setCurrentUser(response.user);
-      setAccountFeedback("success", `Profile updated for ${response.user.fullName}.`);
-    } catch (error) {
-      setAccountFeedback("error", error instanceof Error ? error.message : "Unable to update profile.");
-    } finally {
-      setAccountLoading(false);
-    }
-  };
-
-  const placeOrder = async (orderPayload) => {
-    return createOrder({
-      ...orderPayload,
-      userId: currentUser?._id || orderPayload.userId,
-    });
-  };
-
-  if (activeView === "order") {
-    return (
-      <OrderDetails
-        cartSummary={cartSummary}
-        onBackToMenu={backToMenu}
-        onPlaceOrder={placeOrder}
-        currentUser={currentUser}
-      />
-    );
-  }
-
-  if (activeView === "admin") {
-    return <AdminDashboard onBackToMenu={backToMenu} />;
-  }
 
   return (
     <main className="restaurant-app">
       <Nav
-        filterItem={filterItem}
-        menuList={menuList}
-        activeCategory={activeCategory}
         searchTerm={searchTerm}
         setSearchTerm={setSearchTerm}
+        currentUser={currentUser}
+        onLogout={logout}
+        onLoginClick={() => navigate("/auth")}
+        onProfileClick={() => navigate(currentUser ? "/profile" : "/auth")}
+        activeCategory={activeCategory}
+        setActiveCategory={setActiveCategory}
+        menuList={menuList}
       />
 
       <section className="hero-section">
         <div className="hero-copy">
-          <span className="eyebrow">QuickHungry Bistro</span>
-          <h1>Responsive food ordering that feels like a real restaurant menu.</h1>
-          <p>
-            Explore fresh dishes, filter by meal time, and search instantly across a curated menu built for both desktop and mobile.
-          </p>
-
+          <span className="hero-eyebrow">QuickHungry Bistro</span>
+          <h1>Order food that<br />feels like a real<br />restaurant.</h1>
+          <p className="hero-sub">Fresh dishes, curated by chefs, delivered in 20 minutes. Simple ordering, no clutter.</p>
           <div className="hero-actions">
-            <button type="button" className="primary-action" onClick={backToMenu}>Explore menu</button>
-            <button type="button" className="secondary-action" onClick={() => filterItem("Lunch")}>Today's specials</button>
-            <button type="button" className="secondary-action" onClick={viewAccount}>My account</button>
-            <button type="button" className="secondary-action" onClick={openAdminPage}>Saved orders</button>
+            <button className="primary-action" onClick={() => document.querySelector(".menu-section")?.scrollIntoView({ behavior: "smooth" })}>Explore menu</button>
+            <button className="secondary-action" onClick={openOrderPage}>My orders</button>
           </div>
-
           <div className="hero-stats">
-            <div>
-              <ChefHat size={18} />
-              <strong>10 dishes</strong>
-              <span>chef-picked items</span>
-            </div>
-            <div>
-              <Star size={18} />
-              <strong>4.8 rating</strong>
-              <span>based on guest reviews</span>
-            </div>
-            <div>
-              <Clock3 size={18} />
-              <strong>20 min</strong>
-              <span>average prep time</span>
-            </div>
+            <span className="stat-item">
+              <span className="stat-number">300+</span>
+              <span className="stat-label">Dishes</span>
+            </span>
+            <span className="stat-divider"></span>
+            <span className="stat-item">
+              <span className="stat-number">4.8★</span>
+              <span className="stat-label">Guest rating</span>
+            </span>
+            <span className="stat-divider"></span>
+            <span className="stat-item">
+              <span className="stat-number">20 min</span>
+              <span className="stat-label">Avg. prep</span>
+            </span>
           </div>
         </div>
-
-        <aside className="hero-panel">
-          <div className="hero-panel-stack">
-            <div className="hero-panel-card">
-              <span className="panel-label">Featured today</span>
-              <h2>Spicy paneer bowl with fresh herbs</h2>
-              <p>Bright, filling, and ready to ship as a premium lunch special.</p>
-              <div className="panel-price-row">
-                <span className="price-tag">From 125₹</span>
-                <span className="panel-badge"><Flame size={16} /> Popular now</span>
-              </div>
-            </div>
-
-            <form className="account-panel" ref={accountSectionRef} onSubmit={currentUser ? handleProfileUpdate : handleRegister}>
-              <div className="account-panel-head">
-                <div>
-                  <span className="panel-label">Customer account</span>
-                  <h2>{currentUser ? `Welcome back, ${currentUser.fullName}` : "Register or log in"}</h2>
-                </div>
-                <UserRound size={18} />
-              </div>
-
-              {currentUser ? (
-                <div className="account-summary">
-                  <p>Saved profile is connected to the live backend.</p>
-                  <strong>{currentUser.phone}</strong>
-                  <span>{currentUser.address}</span>
-                  {currentUser.landmark ? <span>Landmark: {currentUser.landmark}</span> : null}
-                </div>
-              ) : (
-                <p className="account-summary">Create a profile to save orders and update your details later.</p>
-              )}
-
-              <div className="account-form-grid">
-                <label>
-                  Full name
-                  <input name="fullName" value={accountForm.fullName} onChange={handleAccountChange} type="text" placeholder="Priyanka Sharma" />
-                </label>
-                <label>
-                  Phone
-                  <input name="phone" value={accountForm.phone} onChange={handleAccountChange} type="tel" placeholder="98765 43210" />
-                </label>
-                <label className="full-width">
-                  Address
-                  <textarea name="address" value={accountForm.address} onChange={handleAccountChange} rows="3" placeholder="Flat no, street, area, city" />
-                </label>
-                <label>
-                  Landmark
-                  <input name="landmark" value={accountForm.landmark} onChange={handleAccountChange} type="text" placeholder="Near main market" />
-                </label>
-                <label>
-                  Delivery time
-                  <select name="deliveryTime" value={accountForm.deliveryTime} onChange={handleAccountChange}>
-                    <option value="asap">As soon as possible</option>
-                    <option value="30">In 30 minutes</option>
-                    <option value="60">In 1 hour</option>
-                  </select>
-                </label>
-              </div>
-
-              <div className="account-actions">
-                {currentUser ? (
-                  <>
-                    <button type="submit" className="account-primary-button" disabled={accountLoading}>
-                      <Save size={16} /> {accountLoading ? "Saving..." : "Update profile"}
-                    </button>
-                    <button type="button" className="account-secondary-button" onClick={handleLogout}>
-                      <LogOut size={16} /> Logout
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button type="submit" className="account-primary-button" disabled={accountLoading}>
-                      <UserRound size={16} /> {accountLoading ? "Registering..." : "Register"}
-                    </button>
-                    <button type="button" className="account-secondary-button" onClick={handleLogin} disabled={accountLoading}>
-                      <LogIn size={16} /> Log in
-                    </button>
-                  </>
-                )}
-              </div>
-
-              {accountStatus.message ? (
-                <div className={`account-message ${accountStatus.type}`}>
-                  {accountStatus.message}
-                </div>
-              ) : null}
-            </form>
+        <div className="hero-visual">
+          <div className="hero-image-gallery">
+            {heroImages.map((src, i) => (
+              <img
+                key={src}
+                src={src}
+                alt="Dish"
+                className={i === currentImageIdx ? "gallery-img active" : "gallery-img"}
+              />
+            ))}
           </div>
-        </aside>
+          <div className="gallery-dots">
+            {heroImages.map((_, i) => (
+              <span key={i} className={i === currentImageIdx ? "dot active" : "dot"} />
+            ))}
+          </div>
+        </div>
       </section>
 
       <section className="menu-section">
         <div className="section-head">
-          <div>
-            <span className="section-kicker">Menu</span>
-            <h2>What are you craving?</h2>
-          </div>
+          <div><span className="section-kicker">Menu</span><h2>What are you craving?</h2></div>
           <div className="section-head-actions">
-            <p>{menuLoading ? "Loading live menu..." : `${menuData.length} items available`}</p>
-            <span className="live-chip">
-              <ShoppingBag size={14} /> {cartSummary.items.length} in cart
-            </span>
+            <p>{menuLoading ? "Loading..." : `${menuData.length} items`}</p>
+            <span className="live-chip"><ShoppingBag size={14} /> {cartSummary.items.length} in cart</span>
           </div>
         </div>
 
-        {menuError ? (
-          <div className="empty-state" style={{ marginBottom: "1rem" }}>
-            <h3>Live menu could not load right now.</h3>
-            <p>Showing the local fallback menu instead.</p>
-          </div>
-        ) : null}
-
-        <div className="menu-layout">
+        <div className={"menu-layout" + (currentUser && cartSummary.items.length > 0 ? " has-checkout" : "")}>
           <div className="menu-feed">
             {menuData.length > 0 ? (
-              <MenuCard menuData={menuData} onAddToCart={addToCart} onOrderNow={addToCartAndOpenOrder} />
+              <MenuCard menuData={menuData} onAddToCart={addToCart} onOrderNow={(item) => { addToCart(item); openOrderPage(); }} />
             ) : (
               <div className="empty-state">
-                <h3>No dishes match your search.</h3>
-                <p>Try another category or clear the search box.</p>
+                {menuError ? (
+                  <>
+                    <h3>Could not load menu</h3>
+                    <p>{menuError}</p>
+                  </>
+                ) : menuLoading ? (
+                  <>
+                    <h3>Loading menu...</h3>
+                    <p>Fetching fresh dishes from the kitchen.</p>
+                  </>
+                ) : (
+                  <>
+                    <h3>No dishes match your search.</h3>
+                    <p>Try another category or clear the search box.</p>
+                  </>
+                )}
               </div>
             )}
           </div>
 
+          {currentUser && cartSummary.items.length > 0 && (
           <aside className="checkout-panel">
             <div className="checkout-head">
-              <div>
-                <span className="checkout-kicker">Checkout</span>
-                <h3>Your order</h3>
-              </div>
+              <div><span className="checkout-kicker">Checkout</span><h3>Your Order</h3></div>
               <span className="checkout-count">{cartSummary.items.length}</span>
             </div>
 
-            {cartSummary.items.length > 0 ? (
-              <>
-                <div className="checkout-items">
-                  {cartSummary.items.map((item) => (
-                    <div className="checkout-item" key={`${item.id}-${item.quantity}`}>
-                      <div>
-                        <strong>{item.name}</strong>
-                        <p>{item.category}</p>
-                      </div>
-
-                      <div className="checkout-item-actions">
-                        <span>{item.quantity}x</span>
-                        <button type="button" onClick={() => addToCart(item)} aria-label={`Add one more ${item.name}`}>
-                          <Plus size={14} />
-                        </button>
-                        <button type="button" onClick={() => removeFromCart(item.id)} aria-label={`Remove one ${item.name}`}>
-                          <Minus size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="checkout-breakdown">
-                  <div>
-                    <span>Subtotal</span>
-                    <strong><BadgeIndianRupee size={14} /> {cartSummary.subtotal}</strong>
+            <div className="checkout-items">
+              {cartSummary.items.map((item) => (
+                <div className="checkout-item" key={item.id}>
+                  <div className="checkout-item-info">
+                    <strong>{item.name}</strong>
+                    <p>{item.category}</p>
+                    <span className="checkout-item-price">{Number(item.price.replace(/[^\d]/g, ""))}₹ each</span>
                   </div>
-                  <div>
-                    <span>Delivery</span>
-                    <strong><BadgeIndianRupee size={14} /> {cartSummary.deliveryFee}</strong>
-                  </div>
-                  <div>
-                    <span>Taxes</span>
-                    <strong><BadgeIndianRupee size={14} /> {cartSummary.tax}</strong>
+                  <div className="checkout-item-actions">
+                    <button className="qty-btn" onClick={() => decrementItem(item.id)} title="Decrease">−</button>
+                    <span className="checkout-qty">{item.quantity}</span>
+                    <button className="qty-btn" onClick={() => incrementItem(item.id)} title="Increase">+</button>
+                    <strong className="item-total">{Number(item.price.replace(/[^\d]/g, "")) * item.quantity}₹</strong>
+                    <button className="remove-btn" onClick={() => removeFromCart(item.id)} title="Remove item">✕</button>
                   </div>
                 </div>
+              ))}
+            </div>
 
-                <div className="checkout-total">
-                  <span>Total</span>
-                  <strong><BadgeIndianRupee size={14} /> {cartSummary.total}</strong>
-                </div>
+            <div className="checkout-breakdown">
+              <div><span>Subtotal</span><strong>{cartSummary.subtotal}₹</strong></div>
+              <div><span>Delivery</span><strong>{cartSummary.deliveryFee}₹</strong></div>
+              <div><span>Taxes</span><strong>{cartSummary.tax}₹</strong></div>
+            </div>
 
-                <button type="button" className="checkout-button" onClick={openOrderPage}>
-                  Proceed to payment <ArrowRight size={16} />
-                </button>
-              </>
-            ) : (
-              <div className="checkout-empty">
-                <p>Add dishes to build your order.</p>
-              </div>
-            )}
+            <div className="checkout-total"><span>Total</span><strong>{cartSummary.total}₹</strong></div>
+
+            <button className="checkout-button" onClick={openOrderPage}>
+              Proceed to Payment
+            </button>
           </aside>
+          )}
         </div>
       </section>
+
+      {currentUser && cartSummary.items.length > 0 && (
+        <button className="cart-fab" onClick={openOrderPage}>
+          <ShoppingBag size={18} />
+          <span className="fab-count">{cartSummary.items.length}</span>
+          <span className="fab-total">{cartSummary.total}₹</span>
+        </button>
+      )}
     </main>
   );
 };
 
 export default Resturant;
-
-

@@ -26,3 +26,6 @@ frontend/dist
 *.njsproj
 *.sln
 *.sw?
+
+# Scratch / temp
+scratch/
